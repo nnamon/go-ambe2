@@ -175,39 +175,64 @@ type prbaCand struct {
 	b3, b4 uint16
 }
 
+// prbaQ holds each PRBA58 codevector's contribution to R (elements 1..8)
+// contiguously, for the inner loop of searchPRBA.
+var prbaQ [len(prbaR58)][8]float64
+
+func init() {
+	for i := range prbaR58 {
+		copy(prbaQ[i][:], prbaR58[i][1:9])
+	}
+}
+
 // searchPRBA jointly searches b3, b4 minimising the mean-removed squared
 // error in the log-magnitude domain contributed by C[i][1], C[i][2]:
 //
 //	sum_i J_i (dC_i1^2 + 2 dC_i2^2) - (sum_i J_i dC_i1)^2 / L
 //
 // and returns the k best pairs, best first.
+//
+// With dC_i1 = (a+c)/2 and dC_i2 = (a-c)/(2*sqrt 2) for the block's two R
+// errors a, c, this equals, with weights v_m = J_block(m)/2 over the eight R
+// elements, d = Rt - R(b3) and q = R(b4):
+//
+//	sum_m v_m (d_m - q_m)^2 - (sum_m v_m (d_m - q_m))^2 / L
+//	  = A(b3) + Q(b4) - 2 sum_m v_m d_m q_m - (B(b3) - P(b4))^2 / L
+//
+// so after per-b3 and per-b4 precomputation each of the 65,536 pairs costs
+// one eight-term dot product.
 func searchPRBA(Rt *[9]float64, J [4]int, L int, k int) []prbaCand {
-	var w [4]float64
-	for i := range w {
-		w[i] = float64(J[i])
+	var v [8]float64
+	for m := range v {
+		v[m] = 0.5 * float64(J[m/2])
 	}
 	invL := 1 / float64(L)
-	const k2 = 1.0 / (2 * math.Sqrt2)
+	var Q, P [len(prbaR58)]float64
+	for i4 := range prbaQ {
+		q := &prbaQ[i4]
+		for m := range v {
+			Q[i4] += v[m] * q[m] * q[m]
+			P[i4] += v[m] * q[m]
+		}
+	}
 	best := make([]prbaCand, 0, k+1)
 	worst := math.Inf(1)
-	var d24 [9]float64
+	var vd [8]float64
 	for i3 := range prbaR24 {
 		r3 := &prbaR24[i3]
-		for i := 1; i <= 8; i++ {
-			d24[i] = Rt[i] - r3[i]
+		A, B := 0.0, 0.0
+		for m := range vd {
+			d := Rt[m+1] - r3[m+1]
+			vd[m] = v[m] * d
+			A += vd[m] * d
+			B += vd[m]
 		}
-		for i4 := range prbaR58 {
-			r4 := &prbaR58[i4]
-			e, s := 0.0, 0.0
-			for i := 0; i < 4; i++ {
-				a := d24[2*i+1] - r4[2*i+1]
-				c := d24[2*i+2] - r4[2*i+2]
-				c1 := 0.5 * (a + c)
-				c2 := k2 * (a - c)
-				e += w[i] * (c1*c1 + 2*c2*c2)
-				s += w[i] * c1
-			}
-			e -= s * s * invL
+		for i4 := range prbaQ {
+			q := &prbaQ[i4]
+			dot := vd[0]*q[0] + vd[1]*q[1] + vd[2]*q[2] + vd[3]*q[3] +
+				vd[4]*q[4] + vd[5]*q[5] + vd[6]*q[6] + vd[7]*q[7]
+			s := B - P[i4]
+			e := A + Q[i4] - 2*dot - s*s*invL
 			if len(best) < k || e < worst {
 				c := prbaCand{e, uint16(i3), uint16(i4)}
 				j := len(best)

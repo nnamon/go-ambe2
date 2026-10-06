@@ -110,7 +110,7 @@ Every combination of encoder (rows) and decoder (columns) was scored against the
 
 * Output level through the MD-380 decoder is 0.98× the input.
 * On strongly voiced speech, the chosen pitch is within 3.5% of the firmware encoder's in 93% of frames.
-* On one core of an Apple M4, encoding takes about 0.32 ms and decoding about 0.023 ms per 20 ms frame (about 60× and 880× real time). Encoding speed is comparable to OP25's C++ encoder (0.31 ms) and to the MD-380 firmware run under qemu-user (0.23 ms).
+* On one core of an Apple M4, encoding takes about 0.22 ms and decoding about 0.023 ms per 20 ms frame (about 90× and 880× real time). For comparison, OP25's C++ encoder takes 0.31 ms and the MD-380 firmware run under qemu-user 0.23 ms; mbelib decodes in 0.12 ms and the emulated firmware in 0.06 ms.
 * Encoder algorithmic delay is 480 samples (60 ms): `Lookahead` 2 frames plus the analysis window. The decoder adds one frame.
 
 ## Tests

@@ -10,3 +10,5 @@
 /research/tools/fec_xcheck/*.inc
 __pycache__/
 .DS_Store
+*.test
+*.prof
