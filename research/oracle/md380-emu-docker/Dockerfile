@@ -1,4 +1,5 @@
-# Reference AMBE+2 oracle: the Tytera MD380 firmware D002.032 vocoder, run via qemu-user.
+# Black-box AMBE+2 oracle (an external check, not a source of the implementation):
+# the Tytera MD-380 firmware D002.032 vocoder, run via qemu-user.
 # Build from the research/ directory (refs/ must be real directories, not symlinks,
 # since Docker does not follow symlinks out of the build context):
 #   docker build -f oracle/md380-emu-docker/Dockerfile -t md380-emu:d02032 .

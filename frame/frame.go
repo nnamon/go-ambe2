@@ -3,7 +3,7 @@
 // nine quantizer indices b0..b8, and the DSD-style ".amb" file container.
 //
 // The bit order is the one used by mbelib's ambe_d[49] (mbe_decodeAmbe2450Parms),
-// OP25's encode_49bit, DSD's .amb files and the MD380 firmware's 49-short buffers.
+// OP25's encode_49bit, DSD's .amb files and the MD-380 firmware's 49-short buffers.
 // Positions 0..11 form FEC vector C0 (Golay 24,12), 12..23 C1 (Golay 23,12 +
 // PRNG whitening), 24..34 C2 and 35..48 C3 (both unprotected).
 package frame

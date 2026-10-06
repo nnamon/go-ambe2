@@ -1,6 +1,6 @@
 # Research and evaluation tooling
 
-This directory holds the tooling used to build, check and score the Go library. That includes harnesses that run the Tytera MD-380 firmware vocoder as an external, black-box reference.
+This directory holds the tooling used to build, check and score the Go library. The library itself is written from the published specifications (see the top-level README). The tooling here includes harnesses that run a Tytera MD-380 radio's firmware vocoder as an external black-box check.
 
 Nothing here is needed to build or use the library. The firmware never runs inside the Go module.
 

@@ -101,7 +101,7 @@ func BandOf(l int, f0 float64) int {
 // Predictor is the inter-frame state of the log-magnitude and gain predictors.
 //
 // Per TIA-102.BABA-1 the state is taken from the last valid voice frame only:
-// silence, tone and erasure frames leave it untouched.  (The MD380 firmware
+// silence, tone and erasure frames leave it untouched.  (The MD-380 firmware
 // decoder was confirmed to behave this way.)  mbelib instead updates the state
 // on silence frames and resets it on erasure/tone frames; MbelibCompat
 // reproduces that, and exists only for cross-checking against mbelib.
