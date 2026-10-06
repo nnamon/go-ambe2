@@ -2,10 +2,21 @@
 // voice-parameter frame: the mapping between the transmitted bit order and the
 // nine quantizer indices b0..b8, and the DSD-style ".amb" file container.
 //
-// The bit order is the one used by mbelib's ambe_d[49] (mbe_decodeAmbe2450Parms),
-// OP25's encode_49bit, DSD's .amb files and the MD-380 firmware's 49-short buffers.
-// Positions 0..11 form FEC vector C0 (Golay 24,12), 12..23 C1 (Golay 23,12 +
-// PRNG whitening), 24..34 C2 and 35..48 C3 (both unprotected).
+// A frame is the bit vectors û0..û3 of TIA-102.BABA-1 concatenated: positions
+// 0..11 are û0 (sent as Golay 24,12 code vector c0), 12..23 û1 (Golay 23,12
+// with PN whitening), 24..34 û2 and 35..48 û3 (both unprotected).  This is the
+// order of mbelib's ambe_d[49], DSD's .amb files, md380-emu's .amb files and
+// UDP frames, and the MD-380 firmware's 49-short vocoder buffers.
+//
+// Which quantizer bits sit where follows TIA-102.BABA-1 clause 5.1, with one
+// exception.  In û3 the draft's Table 8 places the LSB of b3 at bit 8 (frame
+// position 40), followed by b4 bits 2..0 at positions 41..43; the DVSI vocoder
+// in the MD-380 instead places b4 bits 2..0 at positions 40..42 and the LSB of
+// b3 at 43.  This package follows the MD-380, since that is what DVSI-based
+// radios transmit.  The difference was found by black-box testing and is
+// confirmed by the radio's own tone frames.  mbelib, DSD and OP25 follow
+// Table 8: frames for or from them can be converted with ToDraftLayout and
+// FromDraftLayout.
 package frame
 
 import (
@@ -46,8 +57,8 @@ func init() {
 		{0, []int{0, 1, 2, 3}, []int{37, 38, 39}},
 		{1, []int{4, 5, 6, 7}, []int{35}},
 		{2, []int{8, 9, 10, 11}, []int{36}},
-		{3, []int{12, 13, 14, 15, 16, 17, 18, 19}, []int{40}},
-		{4, []int{20, 21, 22, 23}, []int{41, 42, 43}},
+		{3, []int{12, 13, 14, 15, 16, 17, 18, 19}, []int{43}},
+		{4, []int{20, 21, 22, 23}, []int{40, 41, 42}},
 		{5, []int{24, 25, 26, 27}, []int{44}},
 		{6, []int{28, 29, 30}, []int{45}},
 		{7, []int{31, 32, 33}, []int{46}},
@@ -76,6 +87,26 @@ func (p Params) Bits() Bits {
 		b[pos] = uint8(p[s.field]>>s.sig) & 1
 	}
 	return b
+}
+
+// FromDraftLayout converts a frame whose b3 and b4 follow the TIA-102.BABA-1
+// draft's Table 8 (as written by OP25's encoder or read by mbelib and DSD)
+// to this package's layout: position 40 (b3 bit 0 there) moves to 43, and
+// positions 41..43 (b4 bits 2..0 there) move to 40..42.  Tone frames carry no
+// b3 or b4 and should not be converted.
+func FromDraftLayout(d Bits) Bits {
+	b := d
+	b[40], b[41], b[42], b[43] = d[41], d[42], d[43], d[40]
+	return b
+}
+
+// ToDraftLayout is the inverse of FromDraftLayout: it rearranges a voice or
+// silence frame so that a decoder following the draft's Table 8 (mbelib, DSD,
+// OP25) reads the same b3 and b4.
+func (b Bits) ToDraftLayout() Bits {
+	d := b
+	d[40], d[41], d[42], d[43] = b[43], b[40], b[41], b[42]
+	return d
 }
 
 func (b Bits) String() string {

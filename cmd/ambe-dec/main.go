@@ -2,6 +2,9 @@
 // The input format follows the file name: *.amb (DSD-style 49-bit frames),
 // *.bits (49 '0'/'1' per line) or *.ambe72 (9-byte FEC-coded DMR frames).
 // The output is raw little-endian PCM, or a .wav file if the name ends in .wav.
+//
+// -draft-layout reads 49-bit frames whose b3 and b4 follow the TIA-102.BABA-1
+// draft's Table 8, as OP25's encoder writes them; see package frame.
 package main
 
 import (
@@ -23,6 +26,7 @@ var (
 	standard = flag.Bool("standard", false, "use the TIA-102.BABA phase model exactly")
 	silGain  = flag.Float64("silence-gain", ambe.SilenceGain, "amplitude factor for silence frames (1 = standard)")
 	noEnh    = flag.Bool("no-enhance", false, "disable spectral amplitude enhancement")
+	draft    = flag.Bool("draft-layout", false, "49-bit input places b3/b4 bits as the draft standard's Table 8 does (OP25's encoder)")
 )
 
 func main() {
@@ -51,6 +55,8 @@ func run(in, out string) error {
 	var pcm []int16
 	corrected := 0
 	switch {
+	case strings.HasSuffix(in, ".ambe72") && *draft:
+		return errors.New("-draft-layout applies to .amb and .bits input only")
 	case strings.HasSuffix(in, ".ambe72"):
 		r := bufio.NewReader(f)
 		for {
@@ -77,6 +83,9 @@ func run(in, out string) error {
 			return err
 		}
 		for i := range frames {
+			if *draft && !ambe.IsTone(&frames[i]) {
+				frames[i] = frame.FromDraftLayout(frames[i])
+			}
 			s := dec.Decode(&frames[i])
 			pcm = append(pcm, s[:]...)
 		}

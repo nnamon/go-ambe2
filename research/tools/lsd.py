@@ -24,7 +24,7 @@ def env(x, order=14):
 for tag in sys.argv[1:]:
     acc = {}
     for d in sorted(glob.glob(SET + "/*/")):
-        ref = read_pcm(d + "ref.raw"); out = read_pcm(d + f"{tag}.fw.raw")
+        ref = read_pcm(d + "ref.raw"); out = read_pcm(d + (f"{tag}.raw" if "." in tag else f"{tag}.fw.raw"))
         lag = estimate_delay(ref, out); out = out[lag:]
         lines = subprocess.run(["bin/ambe-params", d + "fw.amb"], capture_output=True, text=True).stdout.splitlines()
         for k, line in enumerate(lines[2:]):

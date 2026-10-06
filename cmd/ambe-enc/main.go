@@ -6,6 +6,9 @@
 //	*.bits   one line of 49 '0'/'1' per frame
 //	*.ambe72 9 bytes per frame: the 72-bit FEC-coded, interleaved frame as
 //	         carried in DMR voice bursts (first transmitted bit = MSB)
+//
+// -draft-layout writes b3 and b4 as the TIA-102.BABA-1 draft's Table 8 places
+// them, for decoders that follow it (mbelib, DSD); see package frame.
 package main
 
 import (
@@ -34,6 +37,7 @@ func main() {
 	flag.Float64Var(&cfg.VoicingScale, "vscale", cfg.VoicingScale, "V/UV threshold scale (0 = 1)")
 	flag.Float64Var(&cfg.WeightPower, "wpow", cfg.WeightPower, "quantizer amplitude-weighting power (0 = unweighted)")
 	trace := flag.Bool("trace", false, "print per-frame analysis to stderr")
+	draft := flag.Bool("draft-layout", false, "place b3/b4 bits as the draft standard's Table 8 does (for mbelib/DSD), not as DVSI radios do")
 	flag.Usage = func() {
 		fmt.Fprintf(os.Stderr, "usage: ambe-enc [flags] in.raw|in.wav out.amb|out.bits|out.ambe72\n")
 		flag.PrintDefaults()
@@ -43,13 +47,13 @@ func main() {
 		flag.Usage()
 		os.Exit(2)
 	}
-	if err := run(cfg, flag.Arg(0), flag.Arg(1), *trace); err != nil {
+	if err := run(cfg, flag.Arg(0), flag.Arg(1), *trace, *draft); err != nil {
 		fmt.Fprintln(os.Stderr, "ambe-enc:", err)
 		os.Exit(1)
 	}
 }
 
-func run(cfg ambe.Config, in, out string, trace bool) error {
+func run(cfg ambe.Config, in, out string, trace, draft bool) error {
 	f, err := os.Open(in)
 	if err != nil {
 		return err
@@ -76,6 +80,13 @@ func run(cfg ambe.Config, in, out string, trace bool) error {
 			a := enc.Last
 			fmt.Fprintf(os.Stderr, "%d PI=%.1f EI=%.3f w0=%.4f xi0=%.0f sil=%v b=%v\n",
 				len(frames)-1, a.PInit, a.EInit, a.W0, a.Xi0, a.Silence, a.Params)
+		}
+	}
+	if draft {
+		for i := range frames {
+			if !ambe.IsTone(&frames[i]) {
+				frames[i] = frames[i].ToDraftLayout()
+			}
 		}
 	}
 	o, err := os.Create(out)

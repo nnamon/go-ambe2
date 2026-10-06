@@ -30,6 +30,9 @@ research/setup.sh          # needs git, curl, make, cc/c++, go, python3 (pdftote
 | `tools/mkcorpus.sh`, `eval_go.sh`, `eval_dec.sh`, `score.py`, `score_dec.py` | corpus preparation and PESQ-NB / STOI scoring of every encoder × decoder pairing |
 | `tools/param_diff.py`, `lsd.py`, `level_by_voicing.py`, `dec_divergence.py`, `ltas.py` | diagnostics: parameter agreement, spectral distance, level per voicing class, long-term spectra |
 | `tools/probe_*.py`, `collect_phase.py`, `fit_*.py`, `shape_regress.py`, `amp_compare.py`, `remap_b1.py` | black-box probes of MD-380 decoder behaviour (see Findings) |
+| `tools/masked_pesq.py`, `env_error_profile.py`, `level_by_input.py`, `uv_texture.py`, `excess_by_index.py` | decoder comparisons on the same bitstreams: PESQ per frame class, envelope error, level and noise texture per class, excess error per codebook entry |
+| `tools/spec_tables.py` | extracts the codebook annexes A–G from the BABA-1 PDF and compares them with mbelib's tables (needs `papers/`) |
+| `tools/from_draft_layout.py` | converts `.amb`/`.bits` files from the draft standard's b3/b4 placement (OP25) to the MD-380's |
 | `tools/server_compat.py` | drives `ambe-server` and DVSwitch's `md380-emu -S` with one UDP client: reply format, identity with the offline tools, cross-decoding scores, round-trip times |
 | `tools/vad_fit.py` | fits the voice activity detector to the MD-380 encoder's silence decisions |
 | `tools/gen_codebook.py`, `gen_imbe_windows.py`, `mbelib_tables.py` | regenerate `../internal/codebook` (from mbelib, ISC) and `../internal/imbe` (from the TIA-102.BABA annexes) |
@@ -51,7 +54,9 @@ Run from this directory after `setup.sh`:
 ```
 tools/eval_go.sh go                                  # Go encoder, dev set
 SET=testdata/heldout tools/eval_go.sh go             # Go encoder, held-out set
+SET=testdata/heldout tools/eval_go.sh la1 -lookahead 1   # Go encoder with one frame of look-ahead
 SET=testdata/heldout tools/eval_dec.sh godec fw go op25   # Go decoder vs MD-380 decoder and mbelib
+SET=testdata/heldout DECFLAGS="-standard -silence-gain 1" tools/eval_dec.sh godecstd fw   # standard synthesis
 SET=testdata/heldout .venv/bin/python tools/score.py fw op25   # MD-380 and OP25 encoder baselines
 cd .. && go test ./...                               # includes the cross-checks against research/testdata
 ```
@@ -61,6 +66,17 @@ To check `ambe-server` against md380-emu (needs Docker):
 ```
 docker build -f oracle/dvswitch-md380-emu/Dockerfile -t dvswitch-md380-emu .
 .venv/bin/python tools/server_compat.py testdata/heldout
+```
+
+The top-level README's row for OP25's frames converted to the MD-380's bit placement:
+
+```
+for d in testdata/heldout/*/; do
+  .venv/bin/python tools/from_draft_layout.py $d/op25.amb $d/op25d.amb
+  .venv/bin/python oracle/unicorn/md380_uc.py dec $d/op25d.amb $d/op25d.fw.raw
+  bin/mbelib-dec $d/op25d.amb $d/op25d.mbelib.raw
+done
+SET=testdata/heldout tools/eval_dec.sh godec op25d
 ```
 
 `eval_go.sh` passes extra arguments to `ambe-enc`, and `eval_dec.sh` takes decoder flags in `$DECFLAGS`. Results land next to each recording as `<tag>.amb` and `<tag>.<decoder>.raw`.
@@ -87,4 +103,17 @@ Each is reproducible with the scripts named.
   * no simple envelope-derived phase model explained them.
 * **Prediction coefficient (`probe_rho.py`):** spectral prediction converges like the standard's ρ = 0.65.
 * **Field interpretation (`probe_fields.py`):** b2 and b5–b8 are interpreted as mbelib does.
+* **b3/b4 bit placement (`probe_bit_map.py`, `probe_field_sweep.py`, `probe_tone_layout.py`):** the MD-380 holds b4's three LSBs at frame bits 40–42 and b3's LSB at 43. The BABA-1 draft's Table 8, mbelib and OP25 have b3's LSB at 40 and b4's at 41–43.
+  * `probe_bit_map.py` flips each of the 49 bits in both decoders and matches the effects. With `DRAFT=1` (Table 8), bits 40–43 match 41, 42, 43 and 40; with the library's layout every bit matches itself, except one gain bit the test cannot place.
+  * `probe_field_sweep.py` steps one field through all its values. Per harmonic, the changes from b5–b8 agree between the decoders to a median 0.13–0.38 dB. The changes from b4 disagree by a median 4.7 dB under Table 8 and 0.16 dB under the MD-380's placement.
+  * `probe_tone_layout.py`: in 22 tone frames from the MD-380 encoder, all four copies of the tone index sit exactly where Table 10 puts them. The vocoder's buffer is therefore in the standard's û0..û3 order, and the voice-frame difference is DVSI's packing, not storage.
+  * The library follows the MD-380. Before this was found, the MD-380 decoder lost 0.11 PESQ on Go frames and the Go decoder 0.09 on MD-380 frames.
+* **Codebooks (`spec_tables.py`):** every entry of mbelib's tables matches the BABA-1 draft's annexes A–G.
+* **Remaining decoder gap (`masked_pesq.py` and the comparison tools above, `probe_component_timing.py`, `probe_uv_window.py`, `probe_uv_pitch.py`, `probe_steady_harm.py`):**
+  * the MD-380 decoder leads by 0.16 PESQ on its own frames and by 0.05 on Go frames. Scored one frame class at a time, the Go decoder matches or beats it on all-voiced and silence frames, and trails on frames with unvoiced bands;
+  * on those frames the Go decoder's envelope is as close to the input, and its components are timed like the MD-380's. On DVSI streams its noise texture is also similar;
+  * the MD-380's unvoiced noise fades in and out over about a whole frame (`probe_uv_window.py`), where the standard's window overlaps by 50 samples. With one frame repeated to steady state, its output above about 2.9 kHz is 1–3 dB stronger;
+  * neither matching those differences nor the other changes listed in the top-level README raised PESQ by more than 0.025.
 * **Silence decisions (`vad_fit.py`):** the MD-380 encoder's silence decisions follow an adaptive energy detector; the fit agrees on 87% of held-out frames.
+
+The predictor, silence, tone, voicing, phase, prediction-coefficient, field-interpretation and silence-decision findings were made before the b3/b4 placement was known. Their probes vary other fields, so the conclusions stand, but their fixed base frames reached the MD-380 with b3 and b4 slightly different from what the probes printed.

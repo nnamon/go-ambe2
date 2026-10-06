@@ -58,7 +58,9 @@ func TestDequantizeMatchesMbelib(t *testing.T) {
 			L, _ := strconv.Atoi(f[2])
 			gamma, _ := strconv.ParseFloat(f[3], 64)
 			vl := f[4]
-			m, kind := p.Dequantize(frames[k].Params())
+			// mbelib reads b3 and b4 with the draft layout.
+			fb := frame.FromDraftLayout(frames[k])
+			m, kind := p.Dequantize(fb.Params())
 			if kind == Erasure || kind == Tone {
 				t.Fatalf("%s frame %d: unexpected kind %v", amb, k, kind)
 			}

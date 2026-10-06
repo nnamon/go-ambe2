@@ -5,7 +5,7 @@ A pure Go library (no cgo, no emulation) for the AMBE+2 "half-rate" vocoder used
 * **Encode:** 8 kHz 16-bit PCM to 49-bit voice frames (2450 bps), optionally FEC-coded and interleaved into the 72-bit (3600 bps) frames carried on air.
 * **Decode:** either frame form back to PCM. 72-bit frames get error correction, frame repeats, muting, and tone frames (DTMF, KNOX, call progress).
 
-It is written from the published literature: the TIA-102.BABA (IMBE) and TIA-102.BABA-1 (half-rate) specifications, which build on Griffin and Lim's multi-band excitation model, with codebooks taken from mbelib. A Tytera MD-380 radio's firmware vocoder served only as a black-box check, run outside this module: it was used to score the output and to settle a few behaviours the standards leave open (see Provenance).
+It is written from the published literature: the TIA-102.BABA (IMBE) and TIA-102.BABA-1 (half-rate) specifications, which build on Griffin and Lim's multi-band excitation model, with codebooks taken from mbelib. A Tytera MD-380 radio's firmware vocoder served only as a black-box check, run outside this module. It was used to score the output, to settle a few behaviours the standards leave open, and it showed that real radios place four bits of the frame differently from the draft standard (see Provenance and Deviations).
 
 ```
 go get github.com/nnamon/go-ambe2                     # library
@@ -42,7 +42,7 @@ dtmf0 := ambe.ToneFrame(128, 100) // tone frame: DTMF "0", 100/127 amplitude
 | `ambe` | `Encoder`: MBE speech analysis (pitch estimation and tracking, refinement, V/UV, spectral amplitudes), voice activity detection, framing. `Decoder`: spectral enhancement and MBE speech synthesis, frame repeat and muting, tone frames (`ToneFrame`, `ToneParams`, `IsTone`) |
 | `quant` | half-rate parameter quantizer: `Predictor.Quantize` (encoder search) and `Predictor.Dequantize` (decoder-side reconstruction, shared so the encoder tracks the decoder exactly) |
 | `fec` | 49 ↔ 72-bit channel coding: [24,12]/[23,12] Golay, PN modulation, Annex H / DMR interleave, with error-correcting decode |
-| `frame` | the 49-bit frame: b0..b8 bit layout, DSD `.amb`, text and 7-byte wire (`Pack7`) forms |
+| `frame` | the 49-bit frame: b0..b8 bit layout (with conversions to and from the draft standard's, `FromDraftLayout` / `ToDraftLayout`), DSD `.amb`, text and 7-byte wire (`Pack7`) forms |
 | `internal/codebook` | quantizer tables (generated from mbelib, ISC licence, see `LICENSE.mbelib`) |
 | `internal/imbe` | TIA-102.BABA windows w_I, w_R, w_S and the pitch lowpass (generated from the spec's Annexes B–D and I) |
 | `internal/dsp` | FFT and small helpers |
@@ -55,14 +55,14 @@ The implementation was written from the published literature:
 
 * **TIA-102.BABA** (IMBE vocoder description), chapter 5, for the speech analysis: high-pass filter, the E(P) pitch criterion, look-back/look-ahead tracking, quarter-sample refinement, V/UV thresholds, and the amplitude estimators. Chapter 8 for spectral amplitude enhancement, and chapter 11 for speech synthesis: windowed-noise unvoiced synthesis with weighted overlap-add, and voiced synthesis with phase tracking. Windows and filter taps come from its Annexes B–D and I (`research/tools/gen_imbe_windows.py`).
 * **TIA-102.BABA-1** (half-rate vocoder addendum) for:
-  * clauses 4–5: the quantizer equations, frame types, bit prioritisation, Golay coding, PN modulation and interleave (Annex H);
+  * clauses 4–5: the quantizer equations, frame types, bit prioritisation (except the placement of four bits, see Deviations), Golay coding, PN modulation and interleave (Annex H);
   * clauses 5.5–5.7: error estimation, frame repeats and muting;
   * clause 7 and Annex J: tone frames.
 * **Codebooks** (Annexes A–G) come from mbelib's `ambe3600x2450_const.h`, which is ISC-licensed (`research/tools/gen_codebook.py`).
 * **The multi-band excitation model** behind both specifications is D. W. Griffin and J. S. Lim's ("Multiband Excitation Vocoder", IEEE Trans. ASSP 36(8), 1988).
 * **Test vectors and cross-checks:**
   * the silence and tone frames published in NXDN TS 1-A §7.2.1 (the silence frame also appears in MMDVMHost);
-  * the bit layouts in mbelib and OP25;
+  * the bit layouts in mbelib and OP25, which follow the draft standard's;
   * DSD's DMR deinterleave tables.
 
 This module contains no firmware, firmware-derived code, or firmware-extracted data.
@@ -70,10 +70,18 @@ This module contains no firmware, firmware-derived code, or firmware-extracted d
 A Tytera MD-380 radio's firmware vocoder was used only as a **black-box check**, run outside this module (Docker/qemu or Unicorn under `research/oracle`). It was used to:
 
 * score quality in both directions: Go-encoded frames through the MD-380 decoder, and MD-380-encoded frames through the Go decoder;
-* confirm behaviour where the published sources disagree (for example, the specification and mbelib on silence frames);
+* confirm behaviour where the published sources disagree (for example, the specification and mbelib on silence frames), or where the sources and real radios disagree (the bit placement below);
 * choose settings the standards leave open. Each is marked **[MD-380]** below.
 
 ## Deviations from / additions to the standards
+
+Frame format:
+
+* **b3/b4 bit placement [MD-380].** The draft TIA-102.BABA-1 (v1.0.5, Table 8) puts the LSB of b3 at frame bit 40 (û3 bit 8) and the three LSBs of b4 at bits 41–43. The MD-380's DVSI vocoder puts b4's three LSBs at bits 40–42 and b3's LSB at bit 43, when encoding and when decoding. This library follows the MD-380, since radios use DVSI's vocoder. mbelib, DSD and OP25 follow Table 8. They therefore misread these four bits in frames from DVSI vocoders, and DVSI decoders misread OP25's. `frame.FromDraftLayout` and `Bits.ToDraftLayout` convert between the two. Evidence, all black-box (`research/tools/probe_bit_map.py`, `probe_field_sweep.py`, `probe_tone_layout.py`):
+  * with this placement, flipping a bit of a frame changes the MD-380 decoder's output the way flipping the same bit changes this decoder's, for 48 of the 49 bits. The 49th is a gain bit whose flip only changes the level, which this test cannot place. With Table 8's placement, bits 40–43 match bits 41, 42, 43 and 40 instead;
+  * the MD-380 encoder writes tone frames exactly as Table 10 lays them out, in the same 49-bit buffer. That buffer is therefore in the standard's û0..û3 order, so the difference is in how DVSI packs voice frames, not in how the firmware stores them;
+  * on the held-out set, reading the bits this way raises the Go decoder on MD-380 frames by 0.087 PESQ, the MD-380 decoder on Go frames by 0.108, and the MD-380 decoder on OP25's frames by 0.092.
+  * The radio's own FEC and air interface were not observed. The conclusion rests on the radio applying the same channel coding to voice and tone frames.
 
 Encoder and quantizer:
 
@@ -99,22 +107,26 @@ Decoder:
 ## Measured quality
 
 The corpus is Open Speech Repository Harvard sentences at 8 kHz:
-* dev set: 13 files, about 7 minutes;
+* dev set: 12 files, about 7 minutes;
 * held-out set: 12 files, about 7.6 minutes, never used for tuning.
 
 Every combination of encoder (rows) and decoder (columns) was scored against the input as PESQ-NB / STOI. Scripts: `research/tools/eval_go.sh`, `research/tools/eval_dec.sh` and `research/tools/score_dec.py`; see `research/README.md` to reproduce.
 
 | held-out set | MD-380 decoder | **this decoder** | mbelib decoder |
 |---|---|---|---|
-| MD-380 encoder (DVSI AMBE+2) | 3.114 / 0.804 | 2.863 / 0.786 | 2.616 / 0.712 |
-| **this encoder** | 3.096 / 0.807 | **3.151 / 0.824** | 2.920 / 0.794 |
-| OP25 encoder | 2.817 / 0.773 | 2.938 / 0.789 | 1.959 / 0.706 |
+| MD-380 encoder (DVSI AMBE+2) | 3.114 / 0.804 | 2.950 / 0.802 | 2.616 / 0.712 |
+| **this encoder** | **3.204 / 0.825** | **3.151 / 0.824** | 2.832 / 0.776 |
+| OP25 encoder, as sent | 2.817 / 0.773 | 2.840 / 0.773 | 1.959 / 0.706 |
+| OP25 encoder, through `FromDraftLayout` | 2.909 / 0.788 | 2.938 / 0.789 | 1.939 / 0.696 |
 
-* **Encoder:** through the MD-380 decoder, Go-encoded frames score within 0.02 PESQ of the MD-380's own encoder, with higher STOI.
-* **Decoder:** it beats mbelib on every bitstream. It also beats the MD-380 decoder on Go and OP25 bitstreams.
-* **Decoder vs DVSI streams:** on DVSI-encoded bitstreams the Go decoder is 0.25 PESQ / 0.018 STOI below the MD-380's own decoder.
-  * The [MD-380] settings above recover part of that gap: with `StandardSynthesis` and `SilenceGain: 1` the score is 2.802 / 0.750.
-  * The rest was not attributable to any single mechanism tested: spectral reconstruction, prediction, phase model, harmonic interpolation, noise synthesis, spectral tilt, and the codewords DVSI's encoder uses beyond the standard table (worth 0.06 to the MD-380 itself).
+mbelib and OP25 use the draft bit placement (see Deviations), so the mbelib column misreads four bits of every frame except OP25's as sent. The MD-380 and this decoder misread the same bits in OP25's frames as sent.
+
+* **Encoder:** through the MD-380 decoder, Go-encoded frames score 3.204 / 0.825, above the MD-380's own encoder at 3.114 / 0.804.
+* **Decoder:** it beats mbelib on every bitstream, and the MD-380 decoder on OP25's. The MD-380 decoder is ahead by 0.053 PESQ on Go-encoded frames and by 0.164 on DVSI-encoded frames, with STOI within 0.002 on both.
+* **Where the decoder gap is:** scored on one frame class at a time (`research/tools/masked_pesq.py`), this decoder is within 0.011 of the MD-380's, or ahead of it, on all-voiced and silence frames. It trails on frames with unvoiced bands: by 0.31 on unvoiced and 0.13 on mixed-voicing frames of DVSI streams, and by 0.20 and 0.04 on Go streams.
+  * The spectral envelope is not the problem. On DVSI streams this decoder's envelope error against the input is 0.66 dB lower than the MD-380's on unvoiced frames, and 0.14 dB higher on mixed ones. Its voiced and unvoiced components are timed like the MD-380's.
+  * None of these closed it: the shape of the noise crossfade, ±2 dB of unvoiced gain, no enhancement of unvoiced bands, high- or low-band gain, or a smoothed noise spectrum. None raised the score by more than 0.025 on either kind of stream. The cause is not known.
+  * With `StandardSynthesis` and `SilenceGain: 1`, DVSI-encoded frames score 2.893 / 0.766.
 
 * Output level through the MD-380 decoder is 0.98× the input.
 * On strongly voiced speech, the chosen pitch is within 3.5% of the firmware encoder's in 93% of frames.
@@ -144,8 +156,8 @@ End-to-end latency (encoder plus decoder, measured):
 
 | | delay | held-out PESQ-NB / STOI (MD-380 decoder) |
 |---|---|---|
-| this library, `Lookahead: 2` (default) | 60 ms | 3.096 / 0.807 |
-| this library, `Lookahead: 1` | 39 ms | 3.084 / 0.806 |
+| this library, `Lookahead: 2` (default) | 60 ms | 3.204 / 0.825 |
+| this library, `Lookahead: 1` | 39 ms | 3.179 / 0.823 |
 | MD-380 encoder and decoder | 45 ms | 3.114 / 0.804 |
 
 The encoder's own algorithmic delay is 160 + 160·`Lookahead` samples: the pitch window plus the look-ahead frames. The decoder adds one frame. `Lookahead: 0` (20 ms of encoder delay) is available but tracks pitch noticeably worse.
@@ -170,7 +182,7 @@ One UDP datagram carries one 20 ms frame, and requests are dispatched on datagra
 | 9 bytes: a 72-bit on-air frame (extension) | 320 bytes: the decoded samples, after FEC |
 
 * **Ignored datagrams:** any other length gets no reply.
-* **7-byte frame layout:** bits 0–47 MSB-first in bytes 0–5, and bit 48 as `0x80` in byte 6 (`frame.Bits.Pack7`). Any non-zero byte 6 reads as 1, as in md380-emu.
+* **7-byte frame layout:** bits 0–47 MSB-first in bytes 0–5, and bit 48 as `0x80` in byte 6 (`frame.Bits.Pack7`). Any non-zero byte 6 reads as 1, as in md380-emu. Fields are placed as the MD-380 places them (see Deviations), so md380-emu and `ambe-server` read each other's frames identically.
 * **Reply order:** each reply goes to the requesting address. Requests are handled in arrival order, so a client's replies come back in its request order.
 * **9-byte extension:** md380-emu ignores 9-byte datagrams, so existing clients are unaffected by it.
 
@@ -182,7 +194,7 @@ One UDP datagram carries one 20 ms frame, and requests are dispatched on datagra
 | `-host` | `127.0.0.1` | listen address. md380-emu listens on all interfaces; use `-host 0.0.0.0` to do the same, for example inside a container. |
 | `-state` | `shared` | `shared`: one encoder and one decoder for all clients, as md380-emu has. `client`: separate state per client address (IP and port), so several bridges or timeslots can use one server without mixing their audio. |
 | `-idle`, `-max-clients` | `30s`, `256` | with `-state client`: drop a client's state after this long unused, and keep at most this many (least recently used goes first) |
-| `-lookahead` | `2` | encoder look-ahead: `2` for best quality (60 ms codec delay), `1` for 39 ms (−0.012 PESQ) |
+| `-lookahead` | `2` | encoder look-ahead: `2` for best quality (60 ms codec delay), `1` for 39 ms (−0.025 PESQ) |
 | `-silence` | `true` | send silence frames for non-speech input |
 | `-fec` | `false` | reply to PCM with 9-byte FEC-coded 72-bit frames instead of 7-byte frames |
 | `-standard`, `-silence-gain` | off, `0.228` | decoder synthesis options (see `DecoderConfig`) |
@@ -229,16 +241,16 @@ DVSwitch's `md380-emu -S` was built from DVSwitch/md380tools (`research/oracle/d
 
 | encoded by | decoded by md380-emu | decoded by ambe-server |
 |---|---|---|
-| md380-emu | 3.114 / 0.804 | 2.863 / 0.786 |
-| ambe-server | 3.096 / 0.807 | 3.151 / 0.824 |
+| md380-emu | 3.114 / 0.804 | 2.950 / 0.802 |
+| ambe-server | 3.204 / 0.825 | 3.151 / 0.824 |
 
-* **Encode round trip:** `ambe-server` had a median of 0.26 ms (p99 0.36 ms). md380-emu under qemu-user in Docker had 0.36 ms (p99 0.54 ms).
+* **Encode round trip:** `ambe-server` had a median of 0.27 ms (p99 0.55 ms). md380-emu under qemu-user in Docker had 0.40 ms (p99 0.61 ms).
 
 As shipped, DVSwitch's md380-emu crashed with a segmentation fault on its first request in this setup. Its server mode calls into the linked firmware without first making that memory executable, which upstream's file modes do with `mprotect`, so current kernels and qemu refuse to run it. This may be the cause of md380tools issue #925. The test build adds that one `mprotect` call.
 
 ### Differences from md380-emu that matter in a bridge
 
-* **Audio from radios to the analog side:** decoding frames from real radios (DVSI's encoder) scores 2.863 / 0.786 here against md380-emu's 3.114 / 0.804. Audio towards radios is on par.
+* **Audio from radios to the analog side:** decoding frames from real radios (DVSI's encoder) scores 2.950 / 0.802 here against md380-emu's 3.114 / 0.804. Audio towards radios scores higher than md380-emu's own: 3.204 / 0.825 against 3.114 / 0.804, both through the MD-380 decoder.
 * **Tones:** md380-emu's encoder detects steady tones and sends tone frames. `ambe-server` has no tone detection, so DTMF and other tones on the analog side go out as voice frames. It does decode tone frames, and `ToneFrame` builds them for applications that need to send tones.
 * **Codec delay:** 60 ms by default against md380-emu's 45 ms, or 39 ms with `-lookahead 1`.
 * **Exposure:** it listens on loopback only unless `-host` says otherwise. md380-emu answers anyone on the network who reaches its port.
@@ -260,8 +272,8 @@ As shipped, DVSwitch's md380-emu crashed with a segmentation fault on its first 
 
 Some tests also cross-check against reference data produced outside this module, and skip when it is absent:
 
-* the bit layout, against the mbelib and OP25 sources;
-* `Dequantize`, against mbelib's reconstruction of 25,510 frames;
+* the bit layout: mbelib's and OP25's sources must give the draft layout that `FromDraftLayout` converts from;
+* `Dequantize`, against mbelib's reconstruction of 50,552 frames (24 bitstreams);
 * `fec.Decode`, against mbelib on 20,000 random 72-bit frames.
 
 ## Patent note

@@ -5,3 +5,4 @@ pesq==0.0.4
 pystoi==0.4.1
 capstone==5.0.9
 unicorn==2.1.4
+pymupdf==1.28.2

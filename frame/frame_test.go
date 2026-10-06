@@ -58,10 +58,56 @@ func refsDir(t *testing.T) string {
 	return d
 }
 
+// draftLayout is the draft Table 8 layout as seen through FromDraftLayout:
+// a bit at position pos of a draft-layout frame lands where FromDraftLayout
+// puts it, and means what our layout says there.
+func draftLayout() (d [49]slot) {
+	for pos := range d {
+		var b Bits
+		b[pos] = 1
+		c := FromDraftLayout(b)
+		for q := range c {
+			if c[q] == 1 {
+				d[pos] = layout[q]
+			}
+		}
+	}
+	return d
+}
+
+func TestDraftLayoutConversion(t *testing.T) {
+	r := rand.New(rand.NewSource(2))
+	for n := 0; n < 1000; n++ {
+		var b Bits
+		for i := range b {
+			b[i] = uint8(r.Intn(2))
+		}
+		if FromDraftLayout(b.ToDraftLayout()) != b || FromDraftLayout(b).ToDraftLayout() != b {
+			t.Fatal("conversions are not inverses")
+		}
+	}
+	d := draftLayout()
+	for pos := range d {
+		want := layout[pos]
+		switch pos {
+		case 40:
+			want = slot{3, 0}
+		case 41, 42, 43:
+			want = slot{4, uint8(43 - pos)}
+		}
+		if d[pos] != want {
+			t.Errorf("draft pos %d = %+v, want %+v", pos, d[pos], want)
+		}
+	}
+}
+
 // TestLayoutMatchesMbelib parses the bit assignments straight out of mbelib's
-// mbe_decodeAmbe2450Parms and OP25's encode_49bit and checks ours agrees.
+// mbe_decodeAmbe2450Parms and OP25's encode_49bit and checks that they are
+// the draft Table 8 layout, which differs from ours only in b3 and b4's low
+// bits (see the package comment).
 func TestLayoutMatchesMbelib(t *testing.T) {
 	refs := refsDir(t)
+	layout := draftLayout()
 	src, err := os.ReadFile(filepath.Join(refs, "mbelib/ambe3600x2450.c"))
 	if err != nil {
 		t.Fatal(err)
