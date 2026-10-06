@@ -115,8 +115,37 @@ Every combination of encoder (rows) and decoder (columns) was scored against the
 
 * Output level through the MD-380 decoder is 0.98× the input.
 * On strongly voiced speech, the chosen pitch is within 3.5% of the firmware encoder's in 93% of frames.
-* On one core of an Apple M4, encoding takes about 0.22 ms and decoding about 0.023 ms per 20 ms frame (about 90× and 880× real time). For comparison, OP25's C++ encoder takes 0.31 ms and the MD-380 firmware run under qemu-user 0.23 ms; mbelib decodes in 0.12 ms and the emulated firmware in 0.06 ms.
-* Encoder algorithmic delay is 480 samples (60 ms): `Lookahead` 2 frames plus the analysis window. The decoder adds one frame.
+
+## Streaming and speed
+
+The API is frame-at-a-time. `Encoder.Encode` takes 160 samples (20 ms) and `Decoder.Decode` / `Decode72` take one frame. Each keeps the inter-frame state of one stream, so a bridge creates one encoder and one decoder per stream (or per timeslot). Instances are not safe for concurrent use, but separate instances run in parallel.
+
+Speed per 20 ms frame, measured on one core of an Apple M4:
+
+| | encode | decode |
+|---|---|---|
+| **this library** | **218 µs (92× real time)** | **23 µs (880× real time)** |
+| OP25 encoder (C++) / mbelib decoder (C) | 311 µs | 124 µs |
+| MD-380 firmware under qemu-user (md380-emu) | 233 µs | 60 µs |
+| MD-380 firmware under Unicorn (Python harness) | 1,364 µs | 493 µs |
+
+* **How measured:**
+  * the same 47-second recording (2,346 frames), best of 7 runs of each command-line tool, CPU time including file I/O;
+  * the qemu figures were timed inside a Docker container (linux/arm64), excluding container start-up;
+  * Go 1.24.3.
+* **Worst case:** the slowest single frame over 500-frame runs of adversarial input (full-scale noise, square waves, a Nyquist-rate tone, DC, clicks, sweeps) was 0.52 ms to encode and 0.20 ms to decode, so no input comes close to the 20 ms frame budget.
+* **Memory:** about 118 KiB per encoder and 14 KiB per decoder.
+* **History:** the encoder started at 603 µs per frame. Table-driven DCT cosines, sparse-table window minima in the pitch tracker and an expanded PRBA search criterion brought it to 218 µs, with output byte-identical across the evaluation corpus at each step.
+
+End-to-end latency (encoder plus decoder, measured):
+
+| | delay | held-out PESQ-NB / STOI (MD-380 decoder) |
+|---|---|---|
+| this library, `Lookahead: 2` (default) | 60 ms | 3.096 / 0.807 |
+| this library, `Lookahead: 1` | 39 ms | 3.084 / 0.806 |
+| MD-380 encoder and decoder | 45 ms | 3.114 / 0.804 |
+
+The encoder's own algorithmic delay is 160 + 160·`Lookahead` samples: the pitch window plus the look-ahead frames. The decoder adds one frame. `Lookahead: 0` (20 ms of encoder delay) is available but tracks pitch noticeably worse.
 
 ## Tests
 
