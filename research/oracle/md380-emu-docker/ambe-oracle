@@ -1,0 +1,7 @@
+#!/bin/sh
+# Run the MD380 firmware (D002.032) AMBE+2 oracle in Docker against files in the
+# current directory (paths must be relative to $PWD, which is mounted at /w).
+#   ambe-oracle enc in.raw out.amb|out.bits
+#   ambe-oracle dec in.amb|in.bits out.raw
+#   AMBE_ORACLE_BIN=md380-emu ambe-oracle -d -i x.amb -o y.raw   (upstream tool)
+exec docker run --rm -v "$PWD":/w -w /w --entrypoint "${AMBE_ORACLE_BIN:-ambe-oracle}" md380-emu:d02032 "$@"

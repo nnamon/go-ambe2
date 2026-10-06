@@ -1,0 +1,6 @@
+**
+!refs/md380tools/emulator
+!refs/md380tools/applet/src/symbols_d02.032
+!refs/md380tools/cores/d02032-core.img
+!refs/md380tools/firmware/unwrapped/D002.032.img
+!oracle/md380-emu-docker/oracle.c

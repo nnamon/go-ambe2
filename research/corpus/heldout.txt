@@ -1,0 +1,12 @@
+OSR_us_000_0011_8k.wav
+OSR_us_000_0012_8k.wav
+OSR_us_000_0013_8k.wav
+OSR_us_000_0014_8k.wav
+OSR_us_000_0017_8k.wav
+OSR_us_000_0018_8k.wav
+OSR_us_000_0032_8k.wav
+OSR_us_000_0035_8k.wav
+OSR_us_000_0036_8k.wav
+OSR_us_000_0037_8k.wav
+OSR_us_000_0057_8k.wav
+OSR_us_000_0059_8k.wav

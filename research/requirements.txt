@@ -1,0 +1,7 @@
+# Python environment for the research tooling (see setup.sh).
+numpy==2.5.3
+scipy==1.18.1
+pesq==0.0.4
+pystoi==0.4.1
+capstone==5.0.9
+unicorn==2.1.4
