@@ -17,7 +17,8 @@ go:
 	mkdir -p $(BIN)
 	cd ../.. && go build -o research/bin/ambe-enc ./cmd/ambe-enc && \
 	  go build -o research/bin/ambe-dec ./cmd/ambe-dec && \
-	  go build -o research/bin/ambe-params ./cmd/ambe-params
+	  go build -o research/bin/ambe-params ./cmd/ambe-params && \
+	  go build -o research/bin/ambe-server ./cmd/ambe-server
 
 $(BIN)/mbelib-dec: mbelib-dec/main.c common_amb.h
 	mkdir -p $(BIN)
@@ -40,5 +41,5 @@ $(BIN)/fec-xcheck: fec_xcheck/main.c fec_xcheck/rW.inc
 
 clean:
 	rm -rf build fec_xcheck/*.inc $(BIN)/mbelib-dec $(BIN)/op25-enc $(BIN)/fec-xcheck \
-	  $(BIN)/ambe-enc $(BIN)/ambe-dec $(BIN)/ambe-params
+	  $(BIN)/ambe-enc $(BIN)/ambe-dec $(BIN)/ambe-params $(BIN)/ambe-server
 .PHONY: all go clean

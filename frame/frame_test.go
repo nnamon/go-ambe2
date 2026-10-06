@@ -154,3 +154,34 @@ func TestAMBMatchesBitsText(t *testing.T) {
 		t.Fatal("WriteAMB does not reproduce oracle .amb byte-for-byte")
 	}
 }
+
+func TestPack7(t *testing.T) {
+	r := rand.New(rand.NewSource(2))
+	for n := 0; n < 5000; n++ {
+		var b Bits
+		for i := range b {
+			b[i] = uint8(r.Intn(2))
+		}
+		p := b.Pack7()
+		if p[6]&0x7F != 0 || (p[6] == 0x80) != (b[48] == 1) {
+			t.Fatalf("byte 6 = %#x for bit 48 = %d", p[6], b[48])
+		}
+		if Unpack7(p) != b {
+			t.Fatal("Pack7/Unpack7 round trip failed")
+		}
+		// The 7-byte form is the .amb record without its status byte, except
+		// for where bit 48 sits.
+		rec := b.Pack8(0)
+		for i := 0; i < 6; i++ {
+			if p[i] != rec[1+i] {
+				t.Fatalf("byte %d differs from the .amb record", i)
+			}
+		}
+	}
+	// md380-emu reads any non-zero byte 6 as a one.
+	var p [7]byte
+	p[6] = 0x01
+	if Unpack7(p)[48] != 1 {
+		t.Fatal("byte 6 = 0x01 must decode as bit 48 = 1")
+	}
+}

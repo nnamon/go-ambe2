@@ -9,12 +9,13 @@ It is written from the published literature: the TIA-102.BABA (IMBE) and TIA-102
 
 ```
 go get github.com/nnamon/go-ambe2                     # library
-go install github.com/nnamon/go-ambe2/cmd/...@latest  # ambe-enc, ambe-dec, ambe-params
+go install github.com/nnamon/go-ambe2/cmd/...@latest  # ambe-enc, ambe-dec, ambe-params, ambe-server
 
 ambe-enc speech.wav speech.amb        # 49-bit frames, DSD .amb container
 ambe-enc speech.raw speech.ambe72     # 72-bit DMR frames, 9 bytes each
 ambe-dec speech.amb speech.wav        # decode (.amb, .bits or .ambe72) to PCM / WAV
 ambe-params speech.amb                # decode frames to MBE model parameters
+ambe-server -S 2470                   # UDP vocoder server, drop-in for md380-emu -S (see below)
 ```
 
 ```go
@@ -39,12 +40,14 @@ dtmf0 := ambe.ToneFrame(128, 100) // tone frame: DTMF "0", 100/127 amplitude
 | package | contents |
 |---|---|
 | `ambe` | `Encoder`: MBE speech analysis (pitch estimation and tracking, refinement, V/UV, spectral amplitudes), voice activity detection, framing. `Decoder`: spectral enhancement and MBE speech synthesis, frame repeat and muting, tone frames (`ToneFrame`, `ToneParams`, `IsTone`) |
-| `ambe/quant` | half-rate parameter quantizer: `Predictor.Quantize` (encoder search) and `Predictor.Dequantize` (decoder-side reconstruction, shared so the encoder tracks the decoder exactly) |
-| `ambe/fec` | 49 ↔ 72-bit channel coding: [24,12]/[23,12] Golay, PN modulation, Annex H / DMR interleave, with error-correcting decode |
-| `ambe/frame` | the 49-bit frame: b0..b8 bit layout, DSD `.amb` and text I/O |
+| `quant` | half-rate parameter quantizer: `Predictor.Quantize` (encoder search) and `Predictor.Dequantize` (decoder-side reconstruction, shared so the encoder tracks the decoder exactly) |
+| `fec` | 49 ↔ 72-bit channel coding: [24,12]/[23,12] Golay, PN modulation, Annex H / DMR interleave, with error-correcting decode |
+| `frame` | the 49-bit frame: b0..b8 bit layout, DSD `.amb`, text and 7-byte wire (`Pack7`) forms |
 | `internal/codebook` | quantizer tables (generated from mbelib, ISC licence, see `LICENSE.mbelib`) |
-| `internal/imbe` | TIA-102.BABA analysis windows w_I, w_R and the pitch lowpass (generated from the spec's Annexes B–D) |
+| `internal/imbe` | TIA-102.BABA windows w_I, w_R, w_S and the pitch lowpass (generated from the spec's Annexes B–D and I) |
 | `internal/dsp` | FFT and small helpers |
+| `cmd/ambe-enc`, `cmd/ambe-dec`, `cmd/ambe-params` | file encoder, decoder and parameter dump |
+| `cmd/ambe-server` | UDP vocoder server, protocol-compatible with `md380-emu -S` |
 
 ## Provenance
 
@@ -147,6 +150,100 @@ End-to-end latency (encoder plus decoder, measured):
 
 The encoder's own algorithmic delay is 160 + 160·`Lookahead` samples: the pitch window plus the look-ahead frames. The decoder adds one frame. `Lookahead: 0` (20 ms of encoder delay) is available but tracks pitch noticeably worse.
 
+## ambe-server: a drop-in replacement for md380-emu
+
+DMR bridges that need software AMBE+2 commonly run `md380-emu -S 2470`, the MD-380 firmware vocoder under qemu-user with a small UDP server. DVSwitch's Analog_Bridge is one example. `ambe-server` speaks the same protocol, backed by this library: no emulator, no firmware and no qemu. It is a static binary for Linux (x86-64, arm64, ARMv6/v7), macOS and Windows.
+
+```
+go install github.com/nnamon/go-ambe2/cmd/ambe-server@latest
+ambe-server -S 2470                        # listens on 127.0.0.1:2470
+```
+
+### Protocol
+
+One UDP datagram carries one 20 ms frame, and requests are dispatched on datagram length alone, as in md380-emu:
+
+| request | reply |
+|---|---|
+| 320 bytes: 160 little-endian int16 samples, 8 kHz | 7 bytes: the encoded 49-bit frame |
+| 7 bytes: a 49-bit frame | 320 bytes: the decoded samples |
+| 9 bytes: a 72-bit on-air frame (extension) | 320 bytes: the decoded samples, after FEC |
+
+* **Ignored datagrams:** any other length gets no reply.
+* **7-byte frame layout:** bits 0–47 MSB-first in bytes 0–5, and bit 48 as `0x80` in byte 6 (`frame.Bits.Pack7`). Any non-zero byte 6 reads as 1, as in md380-emu.
+* **Reply order:** each reply goes to the requesting address. Requests are handled in arrival order, so a client's replies come back in its request order.
+* **9-byte extension:** md380-emu ignores 9-byte datagrams, so existing clients are unaffected by it.
+
+### Options
+
+| flag | default | meaning |
+|---|---|---|
+| `-S` | `2470` | UDP port (same flag as md380-emu) |
+| `-host` | `127.0.0.1` | listen address. md380-emu listens on all interfaces; use `-host 0.0.0.0` to do the same, for example inside a container. |
+| `-state` | `shared` | `shared`: one encoder and one decoder for all clients, as md380-emu has. `client`: separate state per client address (IP and port), so several bridges or timeslots can use one server without mixing their audio. |
+| `-idle`, `-max-clients` | `30s`, `256` | with `-state client`: drop a client's state after this long unused, and keep at most this many (least recently used goes first) |
+| `-lookahead` | `2` | encoder look-ahead: `2` for best quality (60 ms codec delay), `1` for 39 ms (−0.012 PESQ) |
+| `-silence` | `true` | send silence frames for non-speech input |
+| `-fec` | `false` | reply to PCM with 9-byte FEC-coded 72-bit frames instead of 7-byte frames |
+| `-standard`, `-silence-gain` | off, `0.228` | decoder synthesis options (see `DecoderConfig`) |
+| `-v` | off | log new clients and per-minute counts |
+
+`-state client` keys state on the client's source port. A client that opens a new socket for every frame would get a fresh encoder each time, so use the default `shared` mode for such clients.
+
+### Deploying
+
+**systemd:** replace the emulator in the existing unit.
+
+```
+# before: ExecStart=/opt/md380-emu/qemu-arm-static /opt/md380-emu/md380-emu -S 2470
+ExecStart=/usr/local/bin/ambe-server -S 2470
+```
+
+**DVSwitch Analog_Bridge:** point it at the server in `Analog_Bridge.ini`. The ini describes this as the emulator "for AMBE72 (DMR/YSFN/NXDN)".
+
+```
+useEmulator = true
+emulatorAddress = 127.0.0.1:2470
+```
+
+**Docker:** it has to listen on all interfaces inside the container.
+
+```dockerfile
+FROM golang:1.24 AS build
+RUN CGO_ENABLED=0 go install github.com/nnamon/go-ambe2/cmd/ambe-server@latest
+FROM gcr.io/distroless/static-debian12
+COPY --from=build /go/bin/ambe-server /ambe-server
+EXPOSE 2470/udp
+ENTRYPOINT ["/ambe-server", "-host", "0.0.0.0", "-S", "2470"]
+```
+
+Run it with `docker run -p 127.0.0.1:2470:2470/udp …` so the port is only reachable from the host.
+
+### Verified against md380-emu
+
+DVSwitch's `md380-emu -S` was built from DVSwitch/md380tools (`research/oracle/dvswitch-md380-emu`). One protocol client then drove both servers over UDP with all 12 held-out recordings, 23,466 frames (`research/tools/server_compat.py`):
+
+* **Frame identity:** every md380-emu reply equals the offline firmware oracle's frame, and every `ambe-server` reply equals `ambe-enc`'s frame, byte for byte.
+* **Reply format:** replies always had the documented sizes, and byte 6 was always `0x00` or `0x80`.
+* **Cross-decoding:** each server's frames were decoded by the other. The scores are exactly the library's offline figures (PESQ-NB / STOI), confirming the two speak the same wire format:
+
+| encoded by | decoded by md380-emu | decoded by ambe-server |
+|---|---|---|
+| md380-emu | 3.114 / 0.804 | 2.863 / 0.786 |
+| ambe-server | 3.096 / 0.807 | 3.151 / 0.824 |
+
+* **Encode round trip:** `ambe-server` had a median of 0.26 ms (p99 0.36 ms). md380-emu under qemu-user in Docker had 0.36 ms (p99 0.54 ms).
+
+As shipped, DVSwitch's md380-emu crashed with a segmentation fault on its first request in this setup. Its server mode calls into the linked firmware without first making that memory executable, which upstream's file modes do with `mprotect`, so current kernels and qemu refuse to run it. This may be the cause of md380tools issue #925. The test build adds that one `mprotect` call.
+
+### Differences from md380-emu that matter in a bridge
+
+* **Audio from radios to the analog side:** decoding frames from real radios (DVSI's encoder) scores 2.863 / 0.786 here against md380-emu's 3.114 / 0.804. Audio towards radios is on par.
+* **Tones:** md380-emu's encoder detects steady tones and sends tone frames. `ambe-server` has no tone detection, so DTMF and other tones on the analog side go out as voice frames. It does decode tone frames, and `ToneFrame` builds them for applications that need to send tones.
+* **Codec delay:** 60 ms by default against md380-emu's 45 ms, or 39 ms with `-lookahead 1`.
+* **Exposure:** it listens on loopback only unless `-host` says otherwise. md380-emu answers anyone on the network who reaches its port.
+* **Not yet tested:** a live Analog_Bridge deployment, and ARM boards such as the Raspberry Pi, where speed has not been measured.
+
 ## Tests
 
 `go test ./...` is self-contained. It covers:
@@ -158,7 +255,8 @@ The encoder's own algorithmic delay is 160 + 160·`Lookahead` samples: the pitch
 * the full codec loop: level and pitch through encode and decode;
 * `Decode72` against `Decode`, and the repeat-then-mute sequence;
 * tone frames: frequencies, levels and ID 255;
-* the silence-frame level, and decoder determinism.
+* the silence-frame level, and decoder determinism;
+* `ambe-server`: the protocol replies, both state modes, idle expiry and eviction, and a real UDP round trip.
 
 Some tests also cross-check against reference data produced outside this module, and skip when it is absent:
 

@@ -16,6 +16,7 @@ clone https://github.com/szechyjs/mbelib.git mbelib
 clone https://github.com/boatbod/op25.git op25
 clone https://github.com/lwvmobile/dsd-fme.git dsd-fme
 clone https://github.com/g4klx/MMDVMHost.git MMDVMHost
+clone https://github.com/DVSwitch/md380tools.git dvswitch-md380tools
 
 echo "== MD-380 firmware D002.032 (black-box reference; md380tools checks its SHA-256)"
 make -s -C refs/md380tools/firmware -f Makefile_orig unwrapped/D002.032.img

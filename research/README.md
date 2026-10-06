@@ -25,10 +25,12 @@ research/setup.sh          # needs git, curl, make, cc/c++, go, python3 (pdftote
 | `corpus/dev.txt`, `corpus/heldout.txt` | the Open Speech Repository files in the dev set (tuning) and the held-out set (never used for tuning) |
 | `oracle/unicorn/md380_uc.py` | MD-380 firmware D002.032 vocoder on the Unicorn CPU emulator (Python). It encodes and decodes `.amb`/`.bits`, and is bit-exact with the qemu build on the whole corpus. |
 | `oracle/md380-emu-docker/` | md380tools' `md380-emu`, plus a harness (`oracle.c`) that does not drop frames, built for qemu-user in Docker (`ambe-oracle` wrapper) |
+| `oracle/dvswitch-md380-emu/` | DVSwitch's `md380-emu -S` UDP server as bridges run it, built in Docker with one `mprotect` fix so it does not crash on current systems |
 | `tools/Makefile` | builds into `bin/`: the Go CLIs, `mbelib-dec` (mbelib decoder, with parameter dump), `op25-enc` (OP25's encoder) and `fec-xcheck` (mbelib FEC reference) |
 | `tools/mkcorpus.sh`, `eval_go.sh`, `eval_dec.sh`, `score.py`, `score_dec.py` | corpus preparation and PESQ-NB / STOI scoring of every encoder × decoder pairing |
 | `tools/param_diff.py`, `lsd.py`, `level_by_voicing.py`, `dec_divergence.py`, `ltas.py` | diagnostics: parameter agreement, spectral distance, level per voicing class, long-term spectra |
 | `tools/probe_*.py`, `collect_phase.py`, `fit_*.py`, `shape_regress.py`, `amp_compare.py`, `remap_b1.py` | black-box probes of MD-380 decoder behaviour (see Findings) |
+| `tools/server_compat.py` | drives `ambe-server` and DVSwitch's `md380-emu -S` with one UDP client: reply format, identity with the offline tools, cross-decoding scores, round-trip times |
 | `tools/vad_fit.py` | fits the voice activity detector to the MD-380 encoder's silence decisions |
 | `tools/gen_codebook.py`, `gen_imbe_windows.py`, `mbelib_tables.py` | regenerate `../internal/codebook` (from mbelib, ISC) and `../internal/imbe` (from the TIA-102.BABA annexes) |
 | `tools/fw_callgraph.py` | scopes the firmware's vocoder code (169 functions, about 50 KB of Thumb-2) |
@@ -37,7 +39,7 @@ Created by `setup.sh` (git-ignored):
 
 | path | contents |
 |---|---|
-| `refs/` | third-party sources: md380tools (and the firmware), mbelib, OP25, dsd-fme, MMDVMHost |
+| `refs/` | third-party sources: md380tools (and the firmware), DVSwitch's md380tools fork, mbelib, OP25, dsd-fme, MMDVMHost |
 | `papers/` | TIA-102.BABA and the TIA-102.BABA-1 draft |
 | `testdata/` | corpus sets with the MD-380 and OP25 baselines, plus cross-check data for the Go tests |
 | `bin/`, `.venv/` | builds and the Python environment |
@@ -52,6 +54,13 @@ SET=testdata/heldout tools/eval_go.sh go             # Go encoder, held-out set
 SET=testdata/heldout tools/eval_dec.sh godec fw go op25   # Go decoder vs MD-380 decoder and mbelib
 SET=testdata/heldout .venv/bin/python tools/score.py fw op25   # MD-380 and OP25 encoder baselines
 cd .. && go test ./...                               # includes the cross-checks against research/testdata
+```
+
+To check `ambe-server` against md380-emu (needs Docker):
+
+```
+docker build -f oracle/dvswitch-md380-emu/Dockerfile -t dvswitch-md380-emu .
+.venv/bin/python tools/server_compat.py testdata/heldout
 ```
 
 `eval_go.sh` passes extra arguments to `ambe-enc`, and `eval_dec.sh` takes decoder flags in `$DECFLAGS`. Results land next to each recording as `<tag>.amb` and `<tag>.<decoder>.raw`.

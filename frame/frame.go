@@ -129,6 +129,33 @@ func Unpack8(rec [8]byte) (Bits, byte) {
 	return b, rec[0]
 }
 
+// Pack7 encodes a frame in the 7-byte form used on the wire by md380-emu's
+// UDP server (md380-emu -S) and the bridges that talk to it: bits 0..47
+// MSB-first in bytes 0..5, and bit 48 as 0x80 in byte 6.
+func (b *Bits) Pack7() [7]byte {
+	var out [7]byte
+	for i := 0; i < 48; i++ {
+		out[i/8] |= (b[i] & 1) << (7 - i%8)
+	}
+	if b[48]&1 != 0 {
+		out[6] = 0x80
+	}
+	return out
+}
+
+// Unpack7 decodes the 7-byte wire form.  As md380-emu does, any non-zero
+// byte 6 is read as bit 48 = 1.
+func Unpack7(p [7]byte) Bits {
+	var b Bits
+	for i := 0; i < 48; i++ {
+		b[i] = (p[i/8] >> (7 - i%8)) & 1
+	}
+	if p[6] != 0 {
+		b[48] = 1
+	}
+	return b
+}
+
 // ReadAMB reads a whole .amb stream. A trailing partial record is an error.
 func ReadAMB(r io.Reader) ([]Bits, error) {
 	var hdr [4]byte
