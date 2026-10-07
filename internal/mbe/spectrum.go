@@ -2,6 +2,7 @@ package mbe
 
 import (
 	"math"
+	"sync"
 
 	"github.com/nnamon/mbevoc/internal/dsp"
 )
@@ -21,21 +22,28 @@ type Spectrum struct {
 	buf  [DFTN]complex128
 	S    [DFTN/2 + 1]complex128
 	P    [DFTN/2 + 1]float64 // |S_w(m)|²
-	wr   [wrN/2 + 1]float64  // W_R on the 16384-point grid (real, even)
+	wr   *[wrN/2 + 1]float64 // W_R on the 16384-point grid (real, even); shared, read-only
 	wr0  float64             // W_R(0) = Σ w_R(n)
 	sumW float64             // Σ w_R(n)
 }
 
-// NewSpectrum returns an analyser for 256-point DFTs of w_R-windowed frames.
-func NewSpectrum() *Spectrum {
-	sp := &Spectrum{fft: dsp.NewFFT(DFTN)}
-	for k := range sp.wr {
+// wrTable returns W_R on the 16384-point grid.  It takes about 900,000
+// cosines, so it is computed once, on first use, and shared.
+var wrTable = sync.OnceValue(func() *[wrN/2 + 1]float64 {
+	var wr [wrN/2 + 1]float64
+	for k := range wr {
 		v := WR[WRHalf]
 		for n := 1; n <= WRHalf; n++ {
 			v += 2 * WR[WRHalf+n] * math.Cos(2*math.Pi*float64(k*n)/wrN)
 		}
-		sp.wr[k] = v
+		wr[k] = v
 	}
+	return &wr
+})
+
+// NewSpectrum returns an analyser for 256-point DFTs of w_R-windowed frames.
+func NewSpectrum() *Spectrum {
+	sp := &Spectrum{fft: dsp.NewFFT(DFTN), wr: wrTable()}
 	sp.wr0 = sp.wr[0]
 	sp.sumW = sp.wr0
 	return sp

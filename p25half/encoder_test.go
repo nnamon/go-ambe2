@@ -191,6 +191,44 @@ func TestEncoderDeterministic(t *testing.T) {
 	}
 }
 
+// TestEncodersInParallel runs separate encoders on separate goroutines (they
+// share read-only tables) and checks each matches a serial run.  Run with
+// -race to check the sharing.
+func TestEncodersInParallel(t *testing.T) {
+	x := harmonic(160*40, 160, 6000)
+	encode := func() []frame.Bits {
+		enc := NewEncoder()
+		var out []frame.Bits
+		var pcm [FrameSamples]int16
+		for k := 0; (k+1)*FrameSamples <= len(x); k++ {
+			for i := range pcm {
+				pcm[i] = int16(math.Round(x[k*FrameSamples+i]))
+			}
+			out = append(out, enc.Encode(&pcm))
+		}
+		return out
+	}
+	want := encode()
+	errs := make(chan string, 4)
+	for g := 0; g < 4; g++ {
+		go func() {
+			got := encode()
+			for i := range want {
+				if got[i] != want[i] {
+					errs <- "frame differs from the serial run"
+					return
+				}
+			}
+			errs <- ""
+		}()
+	}
+	for g := 0; g < 4; g++ {
+		if e := <-errs; e != "" {
+			t.Error(e)
+		}
+	}
+}
+
 func BenchmarkEncode(b *testing.B) {
 	x := harmonic(160*50, 140, 6000)
 	enc := NewEncoder()

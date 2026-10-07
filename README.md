@@ -290,7 +290,7 @@ Speed per 20 ms frame, measured on one core of an Apple M4:
   * Go 1.24.3;
   * the C references built with `-O2`, mbelib-neo without its optional SIMD and fast-math flags.
 * **Worst case:** the slowest single frame over 500-frame runs of adversarial input (full-scale noise, square waves, a Nyquist-rate tone, DC, clicks, sweeps) was 0.52 ms to encode and 0.20 ms to decode, so no input comes close to the 20 ms frame budget.
-* **Memory:** about 118 KiB per encoder and 14 KiB per decoder.
+* **Memory:** about 54 KiB per encoder and 14 KiB per decoder, plus 64 KiB of analysis tables shared by all encoders. Creating an encoder takes about 5 µs, and a decoder about 10 µs.
 * **History:** the AMBE+2 encoder started at 603 µs per frame. Table-driven DCT cosines, sparse-table window minima in the pitch tracker and an expanded PRBA search criterion brought it to about 215 µs, with output byte-identical across the evaluation corpus at each step.
 
 End-to-end latency (encoder plus decoder, measured):
