@@ -10,7 +10,8 @@ import (
 
 // searchPRBADirect is the direct (unexpanded) form of the searchPRBA
 // criterion, kept as a reference for testing the optimised search.
-func searchPRBADirect(Rt *[9]float64, J [4]int, L int, k int) []prbaCand {
+func searchPRBADirect(cb *Codebook, Rt *[9]float64, J [4]int, L int, k int) []prbaCand {
+	prbaR24, prbaR58 := cb.prbaR24, cb.prbaR58
 	var w [4]float64
 	for i := range w {
 		w[i] = float64(J[i])
@@ -63,6 +64,12 @@ func searchPRBADirect(Rt *[9]float64, J [4]int, L int, k int) []prbaCand {
 // rounding, and the ranked candidates must be the same except where two
 // candidates' errors are equal to within rounding.
 func TestSearchPRBAMatchesDirect(t *testing.T) {
+	for _, cb := range []*Codebook{AMBE2, DStar} {
+		testSearchPRBA(t, cb)
+	}
+}
+
+func testSearchPRBA(t *testing.T, cb *Codebook) {
 	r := rand.New(rand.NewSource(11))
 	swaps := 0
 	for n := 0; n < 400; n++ {
@@ -73,8 +80,8 @@ func TestSearchPRBAMatchesDirect(t *testing.T) {
 		for i := 1; i <= 8; i++ {
 			Rt[i] = scale * r.NormFloat64()
 		}
-		got := searchPRBA(&Rt, J, L, weightedCandidates)
-		want := searchPRBADirect(&Rt, J, L, weightedCandidates)
+		got := cb.searchPRBA(&Rt, J, L, weightedCandidates)
+		want := searchPRBADirect(cb, &Rt, J, L, weightedCandidates)
 		for i := range want {
 			if math.Abs(got[i].err-want[i].err) > 1e-9*(1+math.Abs(want[i].err)) {
 				t.Fatalf("case %d rank %d: error %v vs direct %v", n, i, got[i].err, want[i].err)
@@ -89,7 +96,7 @@ func TestSearchPRBAMatchesDirect(t *testing.T) {
 			}
 		}
 	}
-	t.Logf("400 random targets: %d ranked candidates (of %d) differ in order", swaps, 400*weightedCandidates)
+	t.Logf("%v, 400 random targets: %d ranked candidates (of %d) differ in order", cb, swaps, 400*weightedCandidates)
 }
 
 func BenchmarkSearchPRBA(b *testing.B) {
@@ -100,7 +107,7 @@ func BenchmarkSearchPRBA(b *testing.B) {
 	}
 	J := codebook.BlockLen[30]
 	for i := 0; i < b.N; i++ {
-		searchPRBA(&Rt, J, 30, weightedCandidates)
+		AMBE2.searchPRBA(&Rt, J, 30, weightedCandidates)
 	}
 }
 
@@ -112,6 +119,6 @@ func BenchmarkSearchPRBADirect(b *testing.B) {
 	}
 	J := codebook.BlockLen[30]
 	for i := 0; i < b.N; i++ {
-		searchPRBADirect(&Rt, J, 30, weightedCandidates)
+		searchPRBADirect(AMBE2, &Rt, J, 30, weightedCandidates)
 	}
 }

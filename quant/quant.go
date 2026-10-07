@@ -1,4 +1,5 @@
-// Package quant implements the AMBE+2 3600x2450 parameter quantizer: the
+// Package quant implements the AMBE+2 3600x2450 parameter quantizer (and,
+// with the DStar codebook, D-STAR's AMBE 3600x2400 one): the
 // decoder-side reconstruction of MBE model parameters from b0..b8
 // (Predictor.Dequantize) and the encoder-side search that inverts it
 // (Predictor.Quantize).  Both share one Predictor so the encoder tracks
@@ -80,13 +81,8 @@ func (m *Model) Amplitude(l int) float64 {
 // UnvoicedScale is the factor a decoder applies to unvoiced amplitudes.
 func UnvoicedScale(w0 float64) float64 { return 0.2046 / math.Sqrt(w0) }
 
-// PitchOf returns w0 (radians/sample) and L for a voice or silence b0.
-func PitchOf(b0 uint16) (w0 float64, L int) {
-	if KindOf(b0) == Silence {
-		return 2 * math.Pi / 32, 14
-	}
-	return 2 * math.Pi * codebook.W0[b0], codebook.L[b0]
-}
+// PitchOf returns w0 (radians/sample) and L for an AMBE+2 voice or silence b0.
+func PitchOf(b0 uint16) (w0 float64, L int) { return AMBE2.Pitch(b0) }
 
 // BandOf returns the 500 Hz voicing band (0..7) that harmonic l of a
 // fundamental of f0 cycles/sample falls in.
@@ -110,19 +106,33 @@ type Predictor struct {
 	Log2M        [MaxL + 2]float64 // indices 0..L+1 may be read
 	Gamma        float64
 	MbelibCompat bool
+
+	cb *Codebook
 }
 
-// NewPredictor returns the predictor in its reset state (L=30, all log2 M 0, gamma 0).
-func NewPredictor() *Predictor {
-	p := &Predictor{}
+// NewPredictor returns an AMBE+2 predictor in its reset state (L=30, all
+// log2 M 0, gamma 0).
+func NewPredictor() *Predictor { return NewPredictorFor(AMBE2) }
+
+// NewPredictorFor returns a predictor for codebook c in its reset state.
+func NewPredictorFor(c *Codebook) *Predictor {
+	p := &Predictor{cb: c}
 	p.Reset()
 	return p
+}
+
+// Codebook returns the predictor's codebook.
+func (p *Predictor) Codebook() *Codebook {
+	if p.cb == nil {
+		return AMBE2
+	}
+	return p.cb
 }
 
 // Reset restores the initial state.  (Any constant initial log2 M is
 // equivalent, since the prediction is mean-removed; only gamma = 0 matters.)
 func (p *Predictor) Reset() {
-	*p = Predictor{L: 30, MbelibCompat: p.MbelibCompat}
+	*p = Predictor{L: 30, MbelibCompat: p.MbelibCompat, cb: p.cb}
 }
 
 // predicted returns P_l (l = 1..L), the previous log2 M resampled to L
@@ -183,15 +193,15 @@ func buildCosTab() (int, []float64) {
 }
 
 // residual rebuilds T_l (l = 1..L) from b3..b8.
-func residual(b frame.Params, L int) (T [MaxL + 1]float64) {
+func (c *Codebook) residual(b frame.Params, L int) (T [MaxL + 1]float64) {
 	var G [9]float64
-	G[2], G[3], G[4] = codebook.PRBA24[b[3]][0], codebook.PRBA24[b[3]][1], codebook.PRBA24[b[3]][2]
+	G[2], G[3], G[4] = c.prba24[b[3]][0], c.prba24[b[3]][1], c.prba24[b[3]][2]
 	for i := 0; i < 4; i++ {
-		G[5+i] = codebook.PRBA58[b[4]][i]
+		G[5+i] = c.prba58[b[4]][i]
 	}
 	R := prbaToR(&G)
-	J := codebook.BlockLen[L]
-	hoc := [4][4]float64{codebook.HOC1[b[5]], codebook.HOC2[b[6]], codebook.HOC3[b[7]], codebook.HOC4[b[8]]}
+	J := c.blockLen[L]
+	hoc := [4][4]float64{c.hoc[0][b[5]], c.hoc[1][b[6]], c.hoc[2][b[7]], c.hoc[3][b[8]]}
 	l := 1
 	for i := 0; i < 4; i++ {
 		var C [MaxL + 1]float64
@@ -237,23 +247,24 @@ func prbaToR(G *[9]float64) (R [9]float64) {
 // advances the predictor.  Erasure and tone frames carry no model and return
 // a zero Model.
 func (p *Predictor) Dequantize(b frame.Params) (m Model, kind Kind) {
-	kind = KindOf(b[0])
+	cb := p.Codebook()
+	kind = cb.Kind(b[0])
 	if kind == Erasure || kind == Tone {
 		if p.MbelibCompat {
 			p.Reset()
 		}
 		return m, kind
 	}
-	m.W0, m.L = PitchOf(b[0])
+	m.W0, m.L = cb.Pitch(b[0])
 	if kind == Voice {
-		f0 := codebook.W0[b[0]]
+		f0 := cb.f0[b[0]]
 		for l := 1; l <= m.L; l++ {
-			m.Voiced[l] = codebook.VUV[b[1]][BandOf(l, f0)] == 1
+			m.Voiced[l] = cb.vuv[b[1]][BandOf(l, f0)] == 1
 		}
 	}
-	m.Gamma = codebook.Dg[b[2]] + gammaLeak*p.Gamma
+	m.Gamma = cb.dg[b[2]] + gammaLeak*p.Gamma
 
-	T := residual(b, m.L)
+	T := cb.residual(b, m.L)
 	meanT := 0.0
 	for l := 1; l <= m.L; l++ {
 		meanT += T[l]

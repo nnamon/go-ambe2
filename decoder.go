@@ -1,11 +1,9 @@
 package ambe
 
 import (
-	"math"
-
 	"github.com/nnamon/go-ambe2/fec"
 	"github.com/nnamon/go-ambe2/frame"
-	"github.com/nnamon/go-ambe2/internal/mbe"
+	"github.com/nnamon/go-ambe2/internal/halfrate"
 	"github.com/nnamon/go-ambe2/quant"
 )
 
@@ -20,17 +18,7 @@ import (
 // (BABA-1 clauses 7.3 and 8).
 // It is not safe for concurrent use.
 type Decoder struct {
-	q   *quant.Predictor
-	syn *mbe.Synthesizer
-
-	last    mbe.Model // last valid frame's enhanced model, for repeats
-	haveVal bool
-	repeats int
-	errRate float64 // ε_R
-
-	muteState   float64
-	noEnhance   bool
-	silenceGain float64
+	e *halfrate.Decoder
 }
 
 // SilenceGain is the default amplitude factor applied to silence frames
@@ -60,16 +48,13 @@ func NewDecoder() *Decoder { return NewDecoderConfig(DecoderConfig{}) }
 
 // NewDecoderConfig returns a decoder with the given configuration.
 func NewDecoderConfig(cfg DecoderConfig) *Decoder {
-	d := &Decoder{q: quant.NewPredictor(), syn: mbe.NewSynthesizer(), muteState: 1,
-		silenceGain: cfg.SilenceGain, noEnhance: cfg.NoEnhancement}
-	if d.silenceGain == 0 {
-		d.silenceGain = SilenceGain
+	sg := cfg.SilenceGain
+	if sg == 0 {
+		sg = SilenceGain
 	}
-	if !cfg.StandardSynthesis {
-		d.syn.Dispersed = true
-		d.syn.InterpLimit = mbe.MaxL + 1
-	}
-	return d
+	return &Decoder{e: halfrate.NewDecoder(halfrate.DecoderConfig{
+		StandardSynthesis: cfg.StandardSynthesis, SilenceGain: sg, NoEnhancement: cfg.NoEnhancement,
+	}, quant.AMBE2)}
 }
 
 // Decode synthesizes 20 ms of speech from a 49-bit frame received without
@@ -82,19 +67,12 @@ func (d *Decoder) Decode(b *frame.Bits) [FrameSamples]int16 {
 // synthesizes 20 ms of speech, repeating or muting on badly corrupted frames.
 func (d *Decoder) Decode72(c *fec.Bits72) ([FrameSamples]int16, fec.Errors) {
 	b, e := fec.Decode(c)
-	e0 := e.C0
-	if e.C0Parity {
-		e0 = 4 // parity failure after correction: at least four errors in c0
-	}
-	eT := e0 + e.C1
-	d.errRate = 0.95*d.errRate + 0.001064*float64(eT)
-	bad := e0 >= 4 || (e0 >= 2 && eT >= 6)
+	bad := d.e.Errors(e.C0, e.C1, e.C0Parity)
 	return d.decode(&b, bad), e
 }
 
 func (d *Decoder) decode(b *frame.Bits, bad bool) [FrameSamples]int16 {
 	p := b.Params()
-	var out [FrameSamples]float64
 	kind := quant.KindOf(p[0])
 	if IsTone(b) {
 		kind = quant.Tone
@@ -104,7 +82,7 @@ func (d *Decoder) decode(b *frame.Bits, bad bool) [FrameSamples]int16 {
 	if !bad && kind == quant.Tone {
 		tm, ok := toneModel(b)
 		if !ok {
-			return d.repeat() // invalid tone index: treated as an erasure
+			return d.e.Repeat() // invalid tone index: treated as an erasure
 		}
 		// The MD-380 decoder applies no spectral enhancement to tones (both
 		// DTMF components come out at equal level) and synthesizes them with
@@ -113,75 +91,7 @@ func (d *Decoder) decode(b *frame.Bits, bad bool) [FrameSamples]int16 {
 			tm.M[l] *= toneLevel
 		}
 		tm.Pure = true
-		d.last, d.haveVal, d.repeats = tm, true, 0
-		d.syn.Synthesize(&tm, &out)
-		return toPCM(&out)
+		return d.e.Tone(tm)
 	}
-	if bad || kind == quant.Erasure {
-		return d.repeat()
-	}
-
-	m, _ := d.q.Dequantize(p)
-	var sm mbe.Model
-	sm.W0, sm.L = m.W0, m.L
-	for l := 1; l <= m.L; l++ {
-		sm.Voiced[l] = m.Voiced[l]
-		sm.M[l] = m.Amplitude(l)
-	}
-	if !d.noEnhance {
-		mbe.Enhance(sm.W0, sm.L, &sm.M)
-	}
-	if kind == quant.Silence {
-		for l := 1; l <= sm.L; l++ {
-			sm.M[l] *= d.silenceGain
-		}
-	}
-
-	d.last, d.haveVal, d.repeats = sm, true, 0
-	if d.errRate > 0.096 {
-		return d.mute()
-	}
-	d.syn.Synthesize(&sm, &out)
-	return toPCM(&out)
-}
-
-// repeat re-synthesizes the previous valid parameters (BABA-1 clause 5.6),
-// muting instead on the fourth consecutive repeat (clause 5.7).
-func (d *Decoder) repeat() [FrameSamples]int16 {
-	d.repeats++
-	if d.repeats >= 4 || d.errRate > 0.096 || !d.haveVal {
-		return d.mute()
-	}
-	var out [FrameSamples]float64
-	sm := d.last
-	d.syn.Synthesize(&sm, &out)
-	return toPCM(&out)
-}
-
-// mute outputs comfort noise uniformly distributed over [-5, 5] while keeping
-// the synthesizer's state advancing.
-func (d *Decoder) mute() [FrameSamples]int16 {
-	var out [FrameSamples]int16
-	for i := range out {
-		d.muteState = mbe.NextNoise(d.muteState)
-		out[i] = int16(math.Round(d.muteState/mbe.NoiseHi*10 - 5))
-	}
-	var silent mbe.Model
-	silent.W0 = d.syn.Prev.W0
-	var sink [FrameSamples]float64
-	d.syn.Synthesize(&silent, &sink)
-	return out
-}
-
-func toPCM(x *[FrameSamples]float64) (out [FrameSamples]int16) {
-	for i, v := range x {
-		v = math.Round(v)
-		if v > 32767 {
-			v = 32767
-		} else if v < -32768 {
-			v = -32768
-		}
-		out[i] = int16(v)
-	}
-	return out
+	return d.e.Frame(p, kind, bad)
 }

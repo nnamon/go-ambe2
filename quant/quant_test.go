@@ -151,7 +151,7 @@ func randomTarget(r *rand.Rand) *Target {
 // trueShapeError computes the exact mean-removed squared error between the
 // residual rebuilt from b and the target X (both length L).
 func trueShapeError(b frame.Params, X *[MaxL + 1]float64, L int) float64 {
-	T := residual(b, L)
+	T := AMBE2.residual(b, L)
 	var e [MaxL + 1]float64
 	mean := 0.0
 	for l := 1; l <= L; l++ {

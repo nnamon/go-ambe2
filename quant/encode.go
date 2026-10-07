@@ -4,7 +4,6 @@ import (
 	"math"
 
 	"github.com/nnamon/go-ambe2/frame"
-	"github.com/nnamon/go-ambe2/internal/codebook"
 )
 
 // Target is the analysis result the quantizer encodes for one frame.
@@ -25,39 +24,22 @@ type Target struct {
 	WeightPower float64
 }
 
-// VUVCandidates are the b1 codewords the encoder may choose.  It omits
+// VUVCandidates are the AMBE+2 b1 codewords the encoder may choose.  It omits
 // entries whose published table rows duplicate another entry (1, 3, 13, 15,
 // 17..31): reference decoders render those as partially or softly voiced
 // rather than exactly as tabulated, so only codewords with unambiguous
 // meaning are used.
 var VUVCandidates = []uint16{0, 2, 4, 5, 6, 7, 8, 9, 10, 11, 12, 14, 16}
 
-// Precomputed PRBA codebook contributions to R (index 1..8).
-var prbaR24 [512][9]float64
-var prbaR58 [128][9]float64
-
-func init() {
-	for b := range codebook.PRBA24 {
-		var G [9]float64
-		copy(G[2:5], codebook.PRBA24[b][:])
-		prbaR24[b] = prbaToR(&G)
-	}
-	for b := range codebook.PRBA58 {
-		var G [9]float64
-		copy(G[5:9], codebook.PRBA58[b][:])
-		prbaR58[b] = prbaToR(&G)
-	}
-}
-
 // chooseVUV picks b1 minimising the weighted voicing mismatch over the bands
 // that contain harmonics.
-func chooseVUV(t *Target, f0 float64, L int) uint16 {
+func (cb *Codebook) chooseVUV(t *Target, f0 float64, L int) uint16 {
 	top := BandOf(L, f0)
-	best, bestErr := VUVCandidates[0], math.Inf(1)
-	for _, c := range VUVCandidates {
+	best, bestErr := cb.vuvCand[0], math.Inf(1)
+	for _, c := range cb.vuvCand {
 		e := 0.0
 		for j := 0; j <= top; j++ {
-			if codebook.VUV[c][j] == 1 {
+			if cb.vuv[c][j] == 1 {
 				e += t.BandWeight[j] * (1 - t.Voicing[j])
 			} else {
 				e += t.BandWeight[j] * t.Voicing[j]
@@ -75,16 +57,17 @@ func chooseVUV(t *Target, f0 float64, L int) uint16 {
 func (p *Predictor) Quantize(t *Target) (frame.Params, Model) {
 	var b frame.Params
 	b[0] = t.B0
-	kind := KindOf(t.B0)
-	w0, L := PitchOf(t.B0)
+	cb := p.Codebook()
+	kind := cb.Kind(t.B0)
+	w0, L := cb.Pitch(t.B0)
 	f0 := w0 / (2 * math.Pi)
 
 	// Voicing, then the log2 amplitude target it implies.
 	var lt [MaxL + 1]float64
 	if kind == Voice {
-		b[1] = chooseVUV(t, f0, L)
+		b[1] = cb.chooseVUV(t, f0, L)
 		for l := 1; l <= L; l++ {
-			if codebook.VUV[b[1]][BandOf(l, f0)] == 1 {
+			if cb.vuv[b[1]][BandOf(l, f0)] == 1 {
 				lt[l] = t.LogV[l]
 			} else {
 				lt[l] = t.LogU[l]
@@ -110,7 +93,7 @@ func (p *Predictor) Quantize(t *Target) (frame.Params, Model) {
 	gammaT := mean + 0.5*math.Log2(float64(L))
 	dg := gammaT - gammaLeak*p.Gamma
 	best := math.Inf(1)
-	for i, v := range codebook.Dg {
+	for i, v := range cb.dg {
 		if e := math.Abs(dg - v); e < best {
 			best, b[2] = e, uint16(i)
 		}
@@ -124,7 +107,7 @@ func (p *Predictor) Quantize(t *Target) (frame.Params, Model) {
 	}
 
 	// Per-block DCT coefficients C[i][k] (k 1-based) and the R targets.
-	J := codebook.BlockLen[L]
+	J := cb.blockLen[L]
 	var C [4][MaxL + 1]float64
 	var Rt [9]float64
 	l0 := 1
@@ -141,11 +124,11 @@ func (p *Predictor) Quantize(t *Target) (frame.Params, Model) {
 		Rt[2*i+2] = C[i][1] - math.Sqrt2*C[i][2]
 		l0 += n
 	}
-	cand := searchPRBA(&Rt, J, L, 1)
+	cand := cb.searchPRBA(&Rt, J, L, 1)
 	b[3], b[4] = cand[0].b3, cand[0].b4
 
 	// Higher-order coefficients, block by block.
-	hoc := [4][][4]float64{codebook.HOC1[:], codebook.HOC2[:], codebook.HOC3[:], codebook.HOC4[:]}
+	hoc := cb.hoc
 	for i := 0; i < 4; i++ {
 		kmax := J[i]
 		if kmax > 6 {
@@ -175,16 +158,6 @@ type prbaCand struct {
 	b3, b4 uint16
 }
 
-// prbaQ holds each PRBA58 codevector's contribution to R (elements 1..8)
-// contiguously, for the inner loop of searchPRBA.
-var prbaQ [len(prbaR58)][8]float64
-
-func init() {
-	for i := range prbaR58 {
-		copy(prbaQ[i][:], prbaR58[i][1:9])
-	}
-}
-
 // searchPRBA jointly searches b3, b4 minimising the mean-removed squared
 // error in the log-magnitude domain contributed by C[i][1], C[i][2]:
 //
@@ -201,13 +174,14 @@ func init() {
 //
 // so after per-b3 and per-b4 precomputation each of the 65,536 pairs costs
 // one eight-term dot product.
-func searchPRBA(Rt *[9]float64, J [4]int, L int, k int) []prbaCand {
+func (cb *Codebook) searchPRBA(Rt *[9]float64, J [4]int, L int, k int) []prbaCand {
+	prbaQ, prbaR24 := cb.prbaQ, cb.prbaR24
 	var v [8]float64
 	for m := range v {
 		v[m] = 0.5 * float64(J[m/2])
 	}
 	invL := 1 / float64(L)
-	var Q, P [len(prbaR58)]float64
+	Q, P := make([]float64, len(prbaQ)), make([]float64, len(prbaQ))
 	for i4 := range prbaQ {
 		q := &prbaQ[i4]
 		for m := range v {
@@ -267,6 +241,7 @@ const weightedCandidates = 32
 // Candidates are the best unweighted PRBA pairs; for each, HOC vectors are
 // chosen per block and the gain is re-optimised and quantized.
 func (p *Predictor) quantizeWeighted(t *Target, b *frame.Params, lt *[MaxL + 1]float64, L int) {
+	cb := p.Codebook()
 	var w, Y [MaxL + 1]float64
 	mx := math.Inf(-1)
 	for l := 1; l <= L; l++ {
@@ -284,7 +259,7 @@ func (p *Predictor) quantizeWeighted(t *Target, b *frame.Params, lt *[MaxL + 1]f
 		X[l] = lt[l] - rho*pl[l]
 	}
 
-	J := codebook.BlockLen[L]
+	J := cb.blockLen[L]
 	var Rt [9]float64
 	start := [4]int{}
 	l0 := 1
@@ -302,14 +277,14 @@ func (p *Predictor) quantizeWeighted(t *Target, b *frame.Params, lt *[MaxL + 1]f
 		Rt[2*i+2] = c1 - math.Sqrt2*c2
 		l0 += n
 	}
-	hoc := [4][][4]float64{codebook.HOC1[:], codebook.HOC2[:], codebook.HOC3[:], codebook.HOC4[:]}
+	hoc := cb.hoc
 	halfLogL := 0.5 * math.Log2(float64(L))
 
 	bestErr := math.Inf(1)
-	for _, c := range searchPRBA(&Rt, J, L, weightedCandidates) {
+	for _, c := range cb.searchPRBA(&Rt, J, L, weightedCandidates) {
 		var G [9]float64
-		copy(G[2:5], codebook.PRBA24[c.b3][:])
-		copy(G[5:9], codebook.PRBA58[c.b4][:])
+		copy(G[2:5], cb.prba24[c.b3][:])
+		copy(G[5:9], cb.prba58[c.b4][:])
 		R := prbaToR(&G)
 		var T [MaxL + 1]float64
 		Tbar := 0.0
@@ -368,12 +343,12 @@ func (p *Predictor) quantizeWeighted(t *Target, b *frame.Params, lt *[MaxL + 1]f
 		gs /= sw
 		dg := gs + halfLogL - gammaLeak*p.Gamma
 		b2, bd := 0, math.Inf(1)
-		for i, v := range codebook.Dg {
+		for i, v := range cb.dg {
 			if d := math.Abs(dg - v); d < bd {
 				b2, bd = i, d
 			}
 		}
-		gq := codebook.Dg[b2] + gammaLeak*p.Gamma - halfLogL
+		gq := cb.dg[b2] + gammaLeak*p.Gamma - halfLogL
 		e := 0.0
 		for l := 1; l <= L; l++ {
 			d := T[l] - Tbar + gq - Y[l]
