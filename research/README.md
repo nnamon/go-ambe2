@@ -26,13 +26,16 @@ research/setup.sh          # needs git, curl, make, cc/c++, go, python3 (pdftote
 | `oracle/unicorn/md380_uc.py` | MD-380 firmware D002.032 vocoder on the Unicorn CPU emulator (Python). It encodes and decodes `.amb`/`.bits`, and is bit-exact with the qemu build on the whole corpus. |
 | `oracle/md380-emu-docker/` | md380tools' `md380-emu`, plus a harness (`oracle.c`) that does not drop frames, built for qemu-user in Docker (`ambe-oracle` wrapper) |
 | `oracle/dvswitch-md380-emu/` | DVSwitch's `md380-emu -S` UDP server as bridges run it, built in Docker with one `mprotect` fix so it does not crash on current systems |
-| `tools/Makefile` | builds into `bin/`: the Go CLIs, `mbelib-dec` (mbelib decoder, with parameter dump), `op25-enc` (OP25's encoder) and `fec-xcheck` (mbelib FEC reference) |
+| `tools/Makefile` | builds into `bin/`: the Go CLIs, `mbelib-dec` (mbelib's AMBE+2, IMBE and D-STAR decoders, with parameter dump), `op25-enc` (OP25's AMBE+2 encoder), `op25-imbe` (OP25's IMBE encoder, decoder and P25 frame coder), `neo-codec` (mbelib-neo's decoders, D-STAR encoder and frame coders; GPL, used only here) and `fec-xcheck` (mbelib FEC reference) |
 | `tools/mkcorpus.sh`, `eval_go.sh`, `eval_dec.sh`, `score.py`, `score_dec.py` | corpus preparation and PESQ-NB / STOI scoring of every encoder × decoder pairing |
 | `tools/param_diff.py`, `lsd.py`, `level_by_voicing.py`, `dec_divergence.py`, `ltas.py` | diagnostics: parameter agreement, spectral distance, level per voicing class, long-term spectra |
 | `tools/probe_*.py`, `collect_phase.py`, `fit_*.py`, `shape_regress.py`, `amp_compare.py`, `remap_b1.py` | black-box probes of MD-380 decoder behaviour (see Findings) |
 | `tools/masked_pesq.py`, `env_error_profile.py`, `level_by_input.py`, `uv_texture.py`, `excess_by_index.py` | decoder comparisons on the same bitstreams: PESQ per frame class, envelope error, level and noise texture per class, excess error per codebook entry |
 | `tools/spec_tables.py` | extracts the codebook annexes A–G from the BABA-1 PDF and compares them with mbelib's tables (needs `papers/`) |
 | `tools/from_draft_layout.py` | converts `.amb`/`.bits` files from the draft standard's b3/b4 placement (OP25) to the MD-380's |
+| `tools/eval_imbe.sh`, `eval_dstar.sh`, `score_matrix.py` | IMBE and D-STAR encoder × decoder matrices (this library, OP25, mbelib, mbelib-neo) |
+| `tools/gen_imbe_tables.py`, `gen_dstar_codebook.py`, `gen_provoice_tables.py` | regenerate `../internal/codebook/imbe.go` (from TIA-102.BABA, checked against mbelib and OP25), `dstar.go` (mbelib, DSD) and `provoice.go` (DSD, mbelib) |
+| `tools/gen_random_frames.py` | random frames for the frame-coding cross-checks |
 | `tools/server_compat.py` | drives `ambe-server` and DVSwitch's `md380-emu -S` with one UDP client: reply format, identity with the offline tools, cross-decoding scores, round-trip times |
 | `tools/vad_fit.py` | fits the voice activity detector to the MD-380 encoder's silence decisions |
 | `tools/gen_codebook.py`, `gen_imbe_windows.py`, `mbelib_tables.py` | regenerate `../internal/codebook` (from mbelib, ISC) and `../internal/mbe/windows.go` (from the TIA-102.BABA annexes) |
@@ -42,8 +45,8 @@ Created by `setup.sh` (git-ignored):
 
 | path | contents |
 |---|---|
-| `refs/` | third-party sources: md380tools (and the firmware), DVSwitch's md380tools fork, mbelib, OP25, dsd-fme, MMDVMHost |
-| `papers/` | TIA-102.BABA and the TIA-102.BABA-1 draft |
+| `refs/` | third-party sources: md380tools (and the firmware), DVSwitch's md380tools fork, mbelib, mbelib-neo, OP25, dsd-fme, MMDVMHost |
+| `papers/` | TIA-102.BABA, the TIA-102.BABA-1 draft, and JARL's D-STAR system description |
 | `testdata/` | corpus sets with the MD-380 and OP25 baselines, plus cross-check data for the Go tests |
 | `bin/`, `.venv/` | builds and the Python environment |
 
@@ -58,6 +61,8 @@ SET=testdata/heldout tools/eval_go.sh la1 -lookahead 1   # Go encoder with one f
 SET=testdata/heldout tools/eval_dec.sh godec fw go op25   # Go decoder vs MD-380 decoder and mbelib
 SET=testdata/heldout DECFLAGS="-standard -silence-gain 1" tools/eval_dec.sh godecstd fw   # standard synthesis
 SET=testdata/heldout .venv/bin/python tools/score.py fw op25   # MD-380 and OP25 encoder baselines
+SET=testdata/heldout tools/eval_imbe.sh              # IMBE: this library and OP25, by four decoders
+SET=testdata/heldout tools/eval_dstar.sh             # D-STAR: this library and mbelib-neo, by three decoders
 cd .. && go test ./...                               # includes the cross-checks against research/testdata
 ```
 
@@ -79,7 +84,9 @@ done
 SET=testdata/heldout tools/eval_dec.sh godec op25d
 ```
 
-`eval_go.sh` passes extra arguments to `ambe-enc`, and `eval_dec.sh` takes decoder flags in `$DECFLAGS`. Results land next to each recording as `<tag>.amb` and `<tag>.<decoder>.raw`.
+`eval_go.sh` passes extra arguments to `ambe-enc`, and `eval_dec.sh` takes decoder flags in `$DECFLAGS`. Results land next to each recording as `<tag>.amb` (`.imb`, `.dmb`) and `<tag>.<decoder>.raw`.
+
+mbelib and mbelib-neo are scored from their float output at unity gain (`mbelib-dec -g 1`, `neo-codec`). Their int16 output applies a gain of 7 and clips: mbelib-neo's clips 3–4% of this corpus's samples, mbelib's about 0.5%.
 
 * **Held-out set:** the scores in the top-level README reproduce exactly from a fresh `setup.sh`.
 * **Dev set:** it is 12 files here. During development it also included a macOS text-to-speech sample, so dev-set means differ slightly from the figures quoted during tuning.
@@ -117,3 +124,14 @@ Each is reproducible with the scripts named.
 * **Silence decisions (`vad_fit.py`):** the MD-380 encoder's silence decisions follow an adaptive energy detector; the fit agrees on 87% of held-out frames.
 
 The predictor, silence, tone, voicing, phase, prediction-coefficient, field-interpretation and silence-decision findings were made before the b3/b4 placement was known. Their probes vary other fields, so the conclusions stand, but their fixed base frames reached the MD-380 with b3 and b4 slightly different from what the probes printed.
+
+## Findings on IMBE, D-STAR and ProVoice
+
+These need no firmware; the scripts and tests named reproduce them.
+
+* **IMBE Annex F erratum in mbelib** (`gen_imbe_tables.py`): the G5 step size for L = 23 is 0.068 in mbelib and mbelib-neo, 0.058 in TIA-102.BABA and OP25. Annex F's step size depends only on the element and its bit count, and every other 4-bit G5 entry is 0.058. Every other table entry agrees.
+* **The TIA-102.BABA encoding example (chapter 10)** has three misprints (`imbe/frame_test.go`). Its fundamental gives L = 15 rather than 16. Two entries of Table 10 contradict the §7.1 scan. The rest of the example matches the bit prioritisation derived from §7.1, which also matches mbelib's precomputed table for every L.
+* **mbelib's [15,11] Hamming decoder** (`bin/hamming-check`, `bin/hamming-check-neo`) maps syndrome s to bit s − 1, which is wrong for 7 of the 15 columns of P25's code. Every single error in bits 7–3 of a word leaves the data wrong, for all 2,048 data words. mbelib-neo has the same masks and a corrected table, and its ProVoice decoder also gets them right.
+* **D-STAR null AMBE frame** (`dstar/dstar_test.go`): MMDVMHost's `DSTAR_NULL_AMBE_DATA_BYTES`, which gateways send for silence, decodes with no corrected errors, with c0's and c1's parity bits consistent, and with b0 = 124 and the all-unvoiced voicing codeword. That supports DSD's interleave, the extended-Golay c1, and AMBE+2-style frame codes for this rate.
+* **D-STAR silence:** mbelib-neo's encoder sends silence as a tone frame with index 128, while the null frame uses b0 = 124. Neither is confirmed against a DVSI implementation.
+* **Decoders on each other's frames** (`eval_imbe.sh`, `eval_dstar.sh`): OP25's IMBE decoder does 0.07 PESQ better than this one on OP25's frames, and this one does 0.14 better than OP25's on this encoder's. It is the same matched-pair pattern as with the MD-380 for AMBE+2.

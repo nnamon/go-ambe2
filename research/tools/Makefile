@@ -11,7 +11,8 @@ CXXFLAGS ?= -O2 -g -w -std=c++17
 MBELIB_SRC := $(MBELIB)/mbelib.c $(MBELIB)/ambe3600x2450.c $(MBELIB)/ambe3600x2400.c \
               $(MBELIB)/imbe7200x4400.c $(MBELIB)/imbe7100x4400.c $(MBELIB)/ecc.c
 
-all: go $(BIN)/mbelib-dec $(BIN)/op25-enc $(BIN)/op25-imbe $(BIN)/neo-codec $(BIN)/fec-xcheck
+all: go $(BIN)/mbelib-dec $(BIN)/op25-enc $(BIN)/op25-imbe $(BIN)/neo-codec $(BIN)/fec-xcheck $(BIN)/hamming-check $(BIN)/hamming-check-neo \
+     $(BIN)/hamming-check $(BIN)/hamming-check-neo
 
 # Go CLIs of this module (always rebuilt; go build is incremental).
 go:
@@ -46,6 +47,14 @@ $(BIN)/neo-codec: neo-codec/main.c
 	$(CC) $(CFLAGS) -DMBE_STATIC=1 -I$(NEO)/include -Ibuild/neo -I$(NEO)/src/internal -I$(NEO)/src/external/pffft -I$(DSDFME)/include \
 	  -o $@ neo-codec/main.c $(NEO_SRC) -lm
 
+$(BIN)/hamming-check: hamming-check/main.c
+	mkdir -p $(BIN)
+	$(CC) $(CFLAGS) -I$(MBELIB) -o $@ hamming-check/main.c $(MBELIB_SRC) -lm
+
+$(BIN)/hamming-check-neo: hamming-check/main.c $(BIN)/neo-codec
+	$(CC) $(CFLAGS) -DNEO -DMBE_STATIC=1 -I$(NEO)/include -Ibuild/neo -I$(NEO)/src/internal -I$(NEO)/src/external/pffft \
+	  -o $@ hamming-check/main.c $(NEO_SRC) -lm
+
 fec_xcheck/rW.inc: fec_xcheck/gen_inc.py
 	python3 fec_xcheck/gen_inc.py $(DSDFME)/include/dmr_const.h fec_xcheck
 
@@ -54,6 +63,6 @@ $(BIN)/fec-xcheck: fec_xcheck/main.c fec_xcheck/rW.inc
 	$(CC) $(CFLAGS) -I$(MBELIB) -Ifec_xcheck -o $@ fec_xcheck/main.c $(MBELIB_SRC) -lm
 
 clean:
-	rm -rf build fec_xcheck/*.inc $(BIN)/mbelib-dec $(BIN)/op25-enc $(BIN)/op25-imbe $(BIN)/neo-codec $(BIN)/fec-xcheck \
+	rm -rf build fec_xcheck/*.inc $(BIN)/mbelib-dec $(BIN)/op25-enc $(BIN)/op25-imbe $(BIN)/neo-codec $(BIN)/fec-xcheck $(BIN)/hamming-check $(BIN)/hamming-check-neo \
 	  $(BIN)/ambe-enc $(BIN)/ambe-dec $(BIN)/ambe-params $(BIN)/ambe-server
 .PHONY: all go clean

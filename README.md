@@ -1,52 +1,123 @@
-# ambe — a from-scratch Go AMBE+2 3600x2450 encoder and decoder
+# go-ambe2 — from-scratch Go MBE vocoders: AMBE+2, IMBE and D-STAR AMBE
 
-A pure Go library (no cgo, no emulation) for the AMBE+2 "half-rate" vocoder used by DMR, NXDN (EHR) and P25 Phase 2:
+A pure Go library (no cgo, no emulation) of encoders and decoders for the multi-band excitation (MBE) vocoders of digital voice radio:
 
-* **Encode:** 8 kHz 16-bit PCM to 49-bit voice frames (2450 bps), optionally FEC-coded and interleaved into the 72-bit (3600 bps) frames carried on air.
-* **Decode:** either frame form back to PCM. 72-bit frames get error correction, frame repeats, muting, and tone frames (DTMF, KNOX, call progress).
+| vocoder | used by | package | parameter frame | coded frame |
+|---|---|---|---|---|
+| AMBE+2 3600x2450 ("half rate") | DMR, NXDN, P25 Phase 2 | `ambe` (module root) | 49 bits | 72 bits |
+| IMBE 7200x4400 ("full rate") | P25 Phase 1 | `imbe` | 88 bits | 144 bits |
+| IMBE 7100x4400 | EDACS ProVoice | `imbe` (`ProVoiceFrame`) | 88 bits | 142 bits |
+| AMBE 3600x2400 | D-STAR | `dstar` | 49 bits (48 used) | 72 bits (9-byte voice data) |
 
-It is written from the published literature: the TIA-102.BABA (IMBE) and TIA-102.BABA-1 (half-rate) specifications, which build on Griffin and Lim's multi-band excitation model, with codebooks taken from mbelib. A Tytera MD-380 radio's firmware vocoder served only as a black-box check, run outside this module. It was used to score the output, to settle a few behaviours the standards leave open, and it showed that real radios place four bits of the frame differently from the draft standard (see Provenance and Deviations).
+For each, the encoder turns 8 kHz 16-bit PCM into frames and the decoder turns frames back into PCM, with error correction (hard- or soft-decision), frame repeats and muting.
+
+AMBE+2 and IMBE are written from their published specifications, TIA-102.BABA-1 and TIA-102.BABA, which build on Griffin and Lim's multi-band excitation model. The AMBE+2 codebooks come from mbelib. D-STAR's rate and ProVoice have no public specification. They follow the reverse-engineered descriptions in mbelib and DSD, checked against mbelib-neo and real-world frames.
+
+For AMBE+2, a Tytera MD-380 radio's firmware vocoder served only as a black-box check, run outside this module. It was used to score the output and to settle a few behaviours the standards leave open. It also showed that real radios place four bits of the frame differently from the draft standard (see Provenance and Deviations).
 
 ```
 go get github.com/nnamon/go-ambe2                     # library
 go install github.com/nnamon/go-ambe2/cmd/...@latest  # ambe-enc, ambe-dec, ambe-params, ambe-server
 
-ambe-enc speech.wav speech.amb        # 49-bit frames, DSD .amb container
-ambe-enc speech.raw speech.ambe72     # 72-bit DMR frames, 9 bytes each
-ambe-dec speech.amb speech.wav        # decode (.amb, .bits or .ambe72) to PCM / WAV
-ambe-params speech.amb                # decode frames to MBE model parameters
-ambe-server -S 2470                   # UDP vocoder server, drop-in for md380-emu -S (see below)
+ambe-enc speech.wav speech.amb        # AMBE+2: 49-bit frames, DSD .amb container
+ambe-enc speech.raw speech.ambe72     # AMBE+2: 72-bit DMR frames, 9 bytes each
+ambe-enc speech.wav speech.imb        # IMBE (P25 Phase 1): 88-bit frames, DSD .imb container
+ambe-enc speech.wav speech.imbe144    # IMBE: 144-bit P25 frames, 18 bytes each
+ambe-enc speech.wav speech.pv         # IMBE: 142-bit EDACS ProVoice frames, 18 bytes each
+ambe-enc speech.wav speech.dmb        # D-STAR: 49-bit frames, dsd-fme .dmb container
+ambe-enc speech.wav speech.dv         # D-STAR: 72-bit frames as 9-byte voice data
+ambe-dec speech.imb speech.wav        # decode any of these to PCM / WAV
+ambe-params speech.amb                # AMBE+2 frames to MBE model parameters
+ambe-server -S 2470                   # AMBE+2 UDP vocoder server, drop-in for md380-emu -S (see below)
 ```
+
+The codec follows the file name; `-codec ambe2|imbe|dstar` overrides it (for `.bits` text files, for example).
 
 ```go
 import (
 	ambe "github.com/nnamon/go-ambe2"
+	"github.com/nnamon/go-ambe2/dstar"
 	"github.com/nnamon/go-ambe2/fec"
+	"github.com/nnamon/go-ambe2/imbe"
 )
 
-enc := ambe.NewEncoder()
-var pcm [ambe.FrameSamples]int16 // 160 samples = 20 ms
-bits := enc.Encode(&pcm)         // frame.Bits (49 bits)
-air := fec.Encode(&bits)         // fec.Bits72, fec.Pack -> [9]byte
+var pcm [ambe.FrameSamples]int16 // 160 samples = 20 ms, the same for every codec
 
-dec := ambe.NewDecoder()
+// AMBE+2 (DMR, NXDN, P25 Phase 2)
+enc, dec := ambe.NewEncoder(), ambe.NewDecoder()
+bits := enc.Encode(&pcm)          // frame.Bits (49 bits)
+air := fec.Encode(&bits)          // fec.Bits72, fec.Pack -> [9]byte
 out := dec.Decode(&bits)          // [160]int16 from an error-free 49-bit frame
 out, errs := dec.Decode72(&air)   // from an on-air frame, with FEC, repeats and muting
 dtmf0 := ambe.ToneFrame(128, 100) // tone frame: DTMF "0", 100/127 amplitude
+
+// IMBE (P25 Phase 1, EDACS ProVoice)
+ienc, idec := imbe.NewEncoder(), imbe.NewDecoder()
+ib := ienc.Encode(&pcm)           // imbe.Bits (88 bits)
+p25 := ib.Encode()                // imbe.Frame (144 bits, Pack -> [18]byte)
+out, ierr := idec.DecodeFrame(&p25)
+pv := ib.EncodeProVoice()         // imbe.ProVoiceFrame (142 bits)
+out, ierr = idec.DecodeProVoice(&pv)
+
+// D-STAR
+denc, ddec := dstar.NewEncoder(), dstar.NewDecoder()
+db := denc.Encode(&pcm)           // dstar.Bits (49 bits)
+df := db.Encode()                 // dstar.Frame (72 bits, Pack -> 9-byte voice data)
+out, derr := ddec.DecodeFrame(&df)
+
+// Soft decisions (log-likelihood ratios, positive = 0) for any coded frame:
+// fec.DecodeSoft / Decoder.Decode72Soft, imbe.SoftFrame / SoftProVoiceFrame,
+// dstar.SoftFrame, and the matching Decoder methods.
 ```
+
+## Compared with mbelib and mbelib-neo
+
+[mbelib](https://github.com/szechyjs/mbelib) is the decoder behind DSD and most open-source receivers. [mbelib-neo](https://github.com/arancormonk/mbelib-neo) is its maintained, performance-focused fork.
+
+| | this library | mbelib-neo | mbelib |
+|---|---|---|---|
+| AMBE+2 3600x2450 | encode + decode | decode | decode |
+| IMBE 7200x4400 (P25 Phase 1) | encode + decode | decode | decode |
+| IMBE 7100x4400 (ProVoice) | encode + decode | decode | decode |
+| AMBE 3600x2400 (D-STAR) | encode + decode | encode + decode | decode |
+| soft-decision FEC | exact maximum likelihood, all formats | yes | no |
+| IMBE adaptive smoothing (TIA-102.BABA ch. 9) | yes | yes | no |
+| tone frames | AMBE+2: decode, and build with `ToneFrame`; D-STAR: single tones | decode | detected, played as silence |
+| licence | not yet chosen | GPL-2.0-or-later | ISC |
+
+Where this library and the C libraries disagree, each reading was checked against the specifications, OP25 and real frames. The differences matter when decoding real traffic:
+
+* **AMBE+2 b3/b4 bit placement:** mbelib and mbelib-neo follow the draft standard's Table 8. The MD-380's DVSI vocoder, and so presumably every DVSI radio, places these four bits differently (see Deviations). Both libraries therefore misread four bits of every frame from real radios.
+* **P25 Hamming correction:** upstream mbelib's `mbe_hamming1511` corrects a single error in bits 14–8 or 2–0 of a [15,11] word, but miscorrects one in bits 7–3, leaving the data wrong. mbelib-neo has fixed this (`research/tools`, checked on all 2,048 words × 15 positions).
+* **IMBE Annex F:** both have 0.068 for the G5 step size at L = 23. TIA-102.BABA and OP25 have 0.058, which every other 4-bit G5 entry also has.
+
+Quality on the same held-out speech, PESQ-NB / STOI. The reference decoders are scored from their float output, since their int16 output clips loud passages.
+
+| frames encoded by | decoded by this library | mbelib | mbelib-neo |
+|---|---|---|---|
+| this library, AMBE+2 | 3.151 / 0.824 | 2.890 / 0.778 | 2.678 / 0.782 |
+| this library, IMBE | 3.218 / 0.829 | 3.045 / 0.798 | 2.691 / 0.792 |
+| this library, D-STAR | 3.136 / 0.823 | 2.951 / 0.795 | 2.740 / 0.796 |
+| mbelib-neo, D-STAR | 2.052 / 0.703 | 2.197 / 0.697 | 2.243 / 0.712 |
+
+mbelib-neo's decoders are much faster, at 7–8 µs a frame against 28–32 µs here (see Streaming and speed).
 
 ## Packages
 
 | package | contents |
 |---|---|
-| `ambe` | `Encoder`: MBE speech analysis (pitch estimation and tracking, refinement, V/UV, spectral amplitudes), voice activity detection, framing. `Decoder`: spectral enhancement and MBE speech synthesis, frame repeat and muting, tone frames (`ToneFrame`, `ToneParams`, `IsTone`) |
-| `quant` | half-rate parameter quantizer: `Predictor.Quantize` (encoder search) and `Predictor.Dequantize` (decoder-side reconstruction, shared so the encoder tracks the decoder exactly) |
-| `fec` | 49 ↔ 72-bit channel coding: [24,12]/[23,12] Golay, PN modulation, Annex H / DMR interleave, with error-correcting decode |
-| `frame` | the 49-bit frame: b0..b8 bit layout (with conversions to and from the draft standard's, `FromDraftLayout` / `ToDraftLayout`), DSD `.amb`, text and 7-byte wire (`Pack7`) forms |
-| `internal/codebook` | quantizer tables (generated from mbelib, ISC licence, see `LICENSE.mbelib`) |
-| `internal/mbe` | the MBE core shared by the codecs: TIA-102.BABA speech analysis (pitch estimation and tracking, refinement, V/UV, amplitudes), spectral enhancement, speech synthesis, and the windows w_I, w_R, w_S and pitch lowpass (generated from the spec's Annexes B–D and I) |
+| `ambe` | AMBE+2. `Encoder`: speech analysis, voice activity detection, quantization. `Decoder`: enhancement and synthesis, frame repeat and muting, tone frames (`ToneFrame`, `ToneParams`, `IsTone`), `Decode72` / `Decode72Soft` |
+| `quant` | half-rate parameter quantizer: `Predictor.Quantize` (encoder search) and `Predictor.Dequantize` (decoder-side reconstruction, shared so the encoder tracks the decoder exactly), for a `Codebook`: `AMBE2` or `DStar` |
+| `fec` | AMBE+2 49 ↔ 72-bit channel coding: [24,12]/[23,12] Golay, PN modulation, Annex H / DMR interleave, with hard and soft error-correcting decode |
+| `frame` | the AMBE+2 49-bit frame: b0..b8 bit layout (with conversions to and from the draft standard's, `FromDraftLayout` / `ToDraftLayout`), DSD `.amb`, text and 7-byte wire (`Pack7`) forms |
+| `imbe` | IMBE 7200x4400: `Encoder`, `Decoder` (with error estimation, repeats, muting and adaptive smoothing), the 88-bit `Bits` and their quantizer values, the 144-bit P25 `Frame`, the 142-bit EDACS `ProVoiceFrame`, soft-decision frames, DSD `.imb` files |
+| `dstar` | D-STAR AMBE 3600x2400: `Encoder`, `Decoder`, the 49-bit `Bits`, the 72-bit `Frame` and 9-byte voice data, soft-decision frames, dsd-fme `.dmb` files |
+| `internal/halfrate` | the encoder and decoder engine shared by `ambe` and `dstar` |
+| `internal/mbe` | the MBE core shared by all codecs: TIA-102.BABA speech analysis (pitch estimation and tracking, refinement, V/UV, amplitudes), spectral enhancement, speech synthesis, and the windows w_I, w_R, w_S and pitch lowpass (generated from the spec's Annexes B–D and I) |
+| `internal/ecc` | Golay [23,12]/[24,12], the P25 [15,11] Hamming code, the PN sequence, and exact maximum-likelihood soft decoders |
+| `internal/codebook` | quantizer and frame tables: AMBE+2 and D-STAR codebooks generated from mbelib (ISC licence, see `LICENSE.mbelib`), IMBE tables from TIA-102.BABA's annexes, D-STAR and ProVoice frame orders from DSD (ISC) |
 | `internal/dsp` | FFT and small helpers |
-| `cmd/ambe-enc`, `cmd/ambe-dec`, `cmd/ambe-params` | file encoder, decoder and parameter dump |
+| `cmd/ambe-enc`, `cmd/ambe-dec`, `cmd/ambe-params` | file encoder and decoder for every codec, AMBE+2 parameter dump |
 | `cmd/ambe-server` | UDP vocoder server, protocol-compatible with `md380-emu -S` |
 
 ## Provenance
@@ -58,12 +129,18 @@ The implementation was written from the published literature:
   * clauses 4–5: the quantizer equations, frame types, bit prioritisation (except the placement of four bits, see Deviations), Golay coding, PN modulation and interleave (Annex H);
   * clauses 5.5–5.7: error estimation, frame repeats and muting;
   * clause 7 and Annex J: tone frames.
-* **Codebooks** (Annexes A–G) come from mbelib's `ambe3600x2450_const.h`, which is ISC-licensed (`research/tools/gen_codebook.py`).
+* **Codebooks** (Annexes A–G) come from mbelib's `ambe3600x2450_const.h`, which is ISC-licensed (`research/tools/gen_codebook.py`). Every entry matches the draft's annexes (`research/tools/spec_tables.py`).
+* **IMBE 7200x4400** follows TIA-102.BABA throughout: chapter 6 for quantization, chapter 7 for bit prioritisation, Golay and Hamming coding, bit modulation, interleaving (Annex H), error estimation, repeats and muting, chapter 8 for enhancement and chapter 9 for adaptive smoothing. Its tables are transcribed from Annexes E, F, G, H and J and Tables 3–4 (`research/tools/gen_imbe_tables.py`). They are checked entry by entry against mbelib, and Annex F also against OP25.
+* **D-STAR AMBE 3600x2400** has no public specification. The codebooks and field layout come from mbelib (ISC), and the frame interleave from DSD (ISC; identical in mbelib-neo). The vocoder model, quantizer search and synthesis are the half-rate ones.
+* **EDACS ProVoice** has no public specification either. The parameter order and frame coding follow mbelib, and the frame bit order follows DSD (both ISC).
 * **The multi-band excitation model** behind both specifications is D. W. Griffin and J. S. Lim's ("Multiband Excitation Vocoder", IEEE Trans. ASSP 36(8), 1988).
 * **Test vectors and cross-checks:**
   * the silence and tone frames published in NXDN TS 1-A §7.2.1 (the silence frame also appears in MMDVMHost);
   * the bit layouts in mbelib and OP25, which follow the draft standard's;
-  * DSD's DMR deinterleave tables.
+  * DSD's DMR deinterleave tables;
+  * IMBE: the encoding example of TIA-102.BABA chapter 10, mbelib's bit-prioritisation table, DSD's P25 interleave, OP25's P25 frame coder, and mbelib's and mbelib-neo's decoders;
+  * D-STAR: the null AMBE frame D-STAR gateways send (MMDVMHost), mbelib's decoder, and mbelib-neo's frame coder;
+  * ProVoice: mbelib-neo's decoder.
 
 This module contains no firmware, firmware-derived code, or firmware-extracted data.
 
@@ -83,7 +160,7 @@ Frame format:
   * on the held-out set, reading the bits this way raises the Go decoder on MD-380 frames by 0.087 PESQ, the MD-380 decoder on Go frames by 0.108, and the MD-380 decoder on OP25's frames by 0.092.
   * The radio's own FEC and air interface were not observed. The conclusion rests on the radio applying the same channel coding to voice and tone frames.
 
-Encoder and quantizer:
+AMBE+2 encoder and quantizer:
 
 * **Silence frames do not update the predictors.** This follows BABA-1 §4.3/4.4: gain and spectral prediction come from the last voice frame. mbelib instead updates on silence and resets on erasure or tone frames. A black-box check confirmed that the MD-380 decoder behaves as the standard says. `Predictor.MbelibCompat` reproduces mbelib's behaviour, for cross-checking only.
 * **Pitch tracking applies the sub-multiple test (BABA eq. 18–20) to the look-back estimate as well**, and floors the ratio's denominator at 0.05. Without these, strongly periodic input locks onto a multiple of the true period (in the unit tests, 2×, 3× or 5× the period).
@@ -95,14 +172,37 @@ Encoder and quantizer:
 * **Voice activity detection [MD-380]** is not specified by the standards. It is an energy detector: noise-floor tracking, 15 dB margin, 4-frame hangover, 1-frame look-ahead. Its parameters were fitted to the MD-380 encoder's silence decisions, and agree with them on 87% of held-out frames. Set `Silence: false` to always send voice frames.
 * **Tones.** The encoder does no tone detection, but `ToneFrame` builds tone frames for applications that send DTMF and similar tones. The encoder never emits erasure frames.
 
-Decoder:
+AMBE+2 decoder:
 
 * **Tone frame detection:** tone frames are recognised by the first six bits of u0 being all ones (BABA-1 §7), not by b0 = 126/127 alone. A tone frame's b0 can be anywhere in 120–127.
 * **Tone synthesis [MD-380]:** tones are synthesized from their BABA-1 Annex J MBE representation. The MD-380 does the same: its DTMF tones come out at Annex J's quantized frequencies, for example 942/1334.6 Hz for "0". The standard leaves the rest open. Following the MD-380, the decoder applies no enhancement to tones, uses continuous phase, and plays them at 1.056× the eq. 68 amplitude. Measured tone frequencies and amplitudes match the MD-380 within about 1%.
 * **Silence frames [MD-380]:** these are played at `SilenceGain` = 0.228 (−12.8 dB) of the standard synthesis. The MD-380 does this consistently for every gain value tested. `DecoderConfig{SilenceGain: 1}` restores the standard behaviour.
 * **Voiced phases [MD-380]:** by default each harmonic gets a fixed pseudo-random phase offset, and all harmonics (not only those below the 8th) are synthesized with continuous amplitude and phase interpolation. Phase-aligned harmonics have a high crest factor, and the MD-380's steady-state harmonic phases are fixed but not aligned. This scores slightly higher, and its output is closer to the MD-380's. `DecoderConfig{StandardSynthesis: true}` gives the TIA-102.BABA phase model exactly.
 * **Repeats and muting:** a frame is repeated when it is an erasure, an invalid tone, or has more than three errors in c0 (detected by parity), or when ε0 ≥ 2 and ε_T ≥ 6. The fourth consecutive repeat, or ε_R > 0.096, mutes to ±5 comfort noise.
-* **Not implemented:** the IMBE adaptive smoothing of chapter 9, which BABA-1 does not adopt for the half-rate vocoder, and soft-decision FEC decoding.
+* **Not implemented:** the IMBE adaptive smoothing of chapter 9, which BABA-1 does not adopt for the half-rate vocoder.
+
+IMBE (P25 Phase 1):
+
+* **Annex F at L = 23:** the G5 step size is the specification's 0.058, as in OP25. mbelib and mbelib-neo have 0.068.
+* **The encoding example of chapter 10 has three misprints.** Its stated fundamental, 2π/35.125, gives L = 15 by eq. 31, not the example's 16. In Table 10, û7 bit 6 must be bit 0 of b16 (not bit 1), and û7 bit 0 must be bit 0 of b18 (not "bit 0" in 1-based numbering), as §7.1's scanning procedure and every other entry imply. The tests use the corrected example.
+* **Initial state:** ξ_max starts at Annex A's 100000. The AMBE+2 encoder keeps eq. 41's floor of 20000.
+* **Voiced phases:** by default dispersed, with all harmonics interpolated, as in the AMBE+2 decoder. `DecoderConfig{StandardSynthesis: true}` gives chapter 11 exactly. Through this decoder the default scores 3.218 against 3.205 on Go-encoded frames.
+* **Adaptive smoothing** follows eq. 112–116 as printed. That includes the amplitude threshold τ_M, which changes by 6000 − 300·ε_T per frame whenever ε_R > 0.005 or ε_T > 6, so it grows unless ε_T exceeds 20. On clean frames smoothing has no effect.
+* **Reserved b0 (208–255)** repeats the previous frame (§7.7). mbelib calls 216–219 silence, which TIA-102.BABA does not define.
+* **Frame repeats and muting** follow §7.7–7.8 exactly. Unlike the half-rate rules, repeats alone never mute; only ε_R > 0.0875 does.
+
+D-STAR:
+
+* **Frame coding:** the 48 parameter bits are two extended [24,12] Golay codewords plus 24 unprotected bits, c1 modulated by 24 PN bits. That structure is what D-STAR's 2.4 kbps of voice in 3.6 kbps with FEC implies (JARL's system description gives only the rates). In mbelib's 49-bit description, c1's parity bit sits in place of the unused information bit 24, which mbelib ignores. This library writes and checks it, as mbelib-neo writes it. The null AMBE frame decodes with both parity bits consistent.
+* **Frame codes:** b0 is classified as in AMBE+2, with 124–125 for silence, 120–123 for erasure and 126–127 for tones. The null AMBE frame has b0 = 124. mbelib decodes every non-tone b0 as voice.
+* **The encoder sends only voice frames.** How D-STAR radios encode silence is not known, and mbelib-neo's encoder uses a tone frame for it.
+* **Tone frames:** single tones (index 5–122 at 31.25·index Hz) are synthesized as mbelib-neo does. Other indices, including mbelib-neo's silence tone 128, play as silence. The tone-frame bit layout is mbelib's, which it marks as partly inferred.
+* **Unverified:** without a DVSI implementation of this rate (an AMBE-3000 chip runs it), the field layout and the c1 parity bit rest on mbelib, mbelib-neo and the null frame.
+
+ProVoice:
+
+* **Hamming code:** syndromes are derived from mbelib's parity-check masks. mbelib's correction table assumes otherwise and miscorrects some single errors; mbelib-neo uses a corrected table.
+* **Unverified:** the parity bits that complete c0 and c1 (no decoder reads them) are written as even parity, and c1's is modulated like the rest of c1. Separating the two frames that a ProVoice voice burst interleaves is left to the receiver.
 
 ## Measured quality
 
@@ -131,6 +231,35 @@ mbelib and OP25 use the draft bit placement (see Deviations), so the mbelib colu
 * Output level through the MD-380 decoder is 0.98× the input.
 * On strongly voiced speech, the chosen pitch is within 3.5% of the firmware encoder's in 93% of frames.
 
+The mbelib column here (and below) scores mbelib's float output at unity gain. Its int16 output applies a gain of 7 and clips loud passages, which costs it up to 0.85 PESQ on OP25's loud frames.
+
+IMBE 7200x4400 (P25 Phase 1), held-out set (`research/tools/eval_imbe.sh`):
+
+| encoder | **this decoder** | OP25 decoder | mbelib decoder | mbelib-neo decoder |
+|---|---|---|---|---|
+| **this encoder** | **3.218 / 0.829** | 3.076 / 0.811 | 3.045 / 0.798 | 2.691 / 0.792 |
+| OP25 encoder (imbe_vocoder) | 3.007 / 0.792 | 3.080 / 0.798 | 2.786 / 0.757 | 2.341 / 0.748 |
+
+* **Encoder:** through OP25's decoder, Go-encoded frames match OP25's own encoder on PESQ, 3.076 against 3.080, and beat it on STOI, 0.811 against 0.798.
+* **Decoder:** on OP25's frames, OP25's decoder is 0.07 PESQ ahead of this one. No setting tried closed that gap: standard synthesis, no enhancement, or no smoothing (which has no effect on clean frames).
+* **ProVoice** frames carry the same 88 bits. Their encode and decode is bit-exact with the P25 path on clean frames, so they score the same.
+
+D-STAR AMBE 3600x2400, held-out set (`research/tools/eval_dstar.sh`):
+
+| encoder | **this decoder** | mbelib decoder | mbelib-neo decoder |
+|---|---|---|---|
+| **this encoder** | **3.136 / 0.823** | 2.951 / 0.795 | 2.740 / 0.796 |
+| mbelib-neo encoder | 2.052 / 0.703 | 2.197 / 0.697 | 2.243 / 0.712 |
+
+* **Encoder:** through mbelib-neo's decoder, Go-encoded frames score 0.50 PESQ above mbelib-neo's own encoder.
+* **No DVSI reference:** there is none for this rate here, so these scores say nothing about agreement with real D-STAR radios.
+
+Soft-decision decoding was tested in simulation: random frames sent as BPSK through Gaussian noise. At σ = 0.6, frames with errors in their protected bits drop:
+
+* AMBE+2: from 59 to 3 of 1,500;
+* D-STAR: from 64 to 1 of 1,500;
+* P25 (σ = 0.55): from 114 to 39 of 400.
+
 ## Streaming and speed
 
 The API is frame-at-a-time. `Encoder.Encode` takes 160 samples (20 ms) and `Decoder.Decode` / `Decode72` take one frame. Each keeps the inter-frame state of one stream, so a bridge creates one encoder and one decoder per stream (or per timeslot). Instances are not safe for concurrent use, but separate instances run in parallel.
@@ -139,18 +268,26 @@ Speed per 20 ms frame, measured on one core of an Apple M4:
 
 | | encode | decode |
 |---|---|---|
-| **this library** | **218 µs (92× real time)** | **23 µs (880× real time)** |
-| OP25 encoder (C++) / mbelib decoder (C) | 311 µs | 124 µs |
-| MD-380 firmware under qemu-user (md380-emu) | 233 µs | 60 µs |
-| MD-380 firmware under Unicorn (Python harness) | 1,364 µs | 493 µs |
+| **this library, AMBE+2** | **214 µs (93× real time)** | **28 µs (710× real time)** |
+| **this library, IMBE** | **50 µs** | **28 µs** |
+| **this library, D-STAR** | **240 µs** | **32 µs** |
+| OP25 (C++), AMBE+2 / IMBE | 309 / 321 µs | – / 73 µs |
+| mbelib (C), AMBE+2 / IMBE / D-STAR | – | 111 / 137 / 130 µs |
+| mbelib-neo (C), AMBE+2 / IMBE / D-STAR | – / – / 7 µs | 7 / 8 / 8 µs |
+| MD-380 firmware under qemu-user (md380-emu), AMBE+2 | 233 µs | 60 µs |
+| MD-380 firmware under Unicorn (Python harness), AMBE+2 | 1,364 µs | 493 µs |
+
+* **IMBE encodes faster** because its quantizers are scalar; AMBE+2 and D-STAR search 65,536 PRBA codebook pairs a frame.
+* **Soft-decision decoding** adds about 5 µs per Golay word.
 
 * **How measured:**
   * the same 47-second recording (2,346 frames), best of 7 runs of each command-line tool, CPU time including file I/O;
   * the qemu figures were timed inside a Docker container (linux/arm64), excluding container start-up;
-  * Go 1.24.3.
+  * Go 1.24.3;
+  * the C references built with `-O2`, mbelib-neo without its optional SIMD and fast-math flags.
 * **Worst case:** the slowest single frame over 500-frame runs of adversarial input (full-scale noise, square waves, a Nyquist-rate tone, DC, clicks, sweeps) was 0.52 ms to encode and 0.20 ms to decode, so no input comes close to the 20 ms frame budget.
 * **Memory:** about 118 KiB per encoder and 14 KiB per decoder.
-* **History:** the encoder started at 603 µs per frame. Table-driven DCT cosines, sparse-table window minima in the pitch tracker and an expanded PRBA search criterion brought it to 218 µs, with output byte-identical across the evaluation corpus at each step.
+* **History:** the AMBE+2 encoder started at 603 µs per frame. Table-driven DCT cosines, sparse-table window minima in the pitch tracker and an expanded PRBA search criterion brought it to about 215 µs, with output byte-identical across the evaluation corpus at each step.
 
 End-to-end latency (encoder plus decoder, measured):
 
@@ -268,14 +405,24 @@ As shipped, DVSwitch's md380-emu crashed with a segmentation fault on its first 
 * `Decode72` against `Decode`, and the repeat-then-mute sequence;
 * tone frames: frequencies, levels and ID 255;
 * the silence-frame level, and decoder determinism;
-* `ambe-server`: the protocol replies, both state modes, idle expiry and eviction, and a real UDP round trip.
+* `ambe-server`: the protocol replies, both state modes, idle expiry and eviction, and a real UDP round trip;
+* Golay and Hamming codes against the generator matrices printed in TIA-102.BABA, and soft decoding against hard;
+* IMBE: bit allocation and prioritisation against the chapter 10 example, frame coding with injected errors, `.imb` files, pitch, level, voicing and sync through the codec, repeats and muting under sustained corruption;
+* D-STAR: frame coding with injected errors, the null AMBE frame, `.dmb` files, and the codec loop;
+* soft decoding of every format through simulated noise.
 
 Some tests also cross-check against reference data produced outside this module, and skip when it is absent:
 
 * the bit layout: mbelib's and OP25's sources must give the draft layout that `FromDraftLayout` converts from;
 * `Dequantize`, against mbelib's reconstruction of 50,552 frames (24 bitstreams);
-* `fec.Decode`, against mbelib on 20,000 random 72-bit frames.
+* `fec.Decode`, against mbelib on 20,000 random 72-bit frames;
+* IMBE: the bit prioritisation against mbelib's table for every L, and Annex H against DSD's P25 interleave;
+* IMBE: frame coding against OP25's coder on 2,000 random frames;
+* IMBE: parameter reconstruction against mbelib on 12,450 frames from this encoder and OP25's;
+* IMBE: decoding of 3,000 random P25 frames and 3,000 random ProVoice frames against mbelib-neo, including error correction;
+* D-STAR: the field layout against mbelib's decoder source, and 9-byte frames against mbelib-neo's coder on 2,000 random frames;
+* D-STAR: parameter reconstruction against mbelib on 6,225 frames.
 
 ## Patent note
 
-DVSI holds patents on AMBE+2. Google Patents lists US 8,359,197 ("Half-rate vocoder", which claims this frame format) as active until 2028-05-20. Check the patent position for your jurisdiction before distributing or deploying. This is not legal advice.
+DVSI holds or held patents on its vocoders. Google Patents lists US 8,359,197 ("Half-rate vocoder", which claims the AMBE+2 3600x2450 frame format) as active until 2028-05-20. The patent position of IMBE, and of D-STAR's AMBE, was not researched here. Check the position for your jurisdiction before distributing or deploying. This is not legal advice.
