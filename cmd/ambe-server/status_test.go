@@ -43,7 +43,7 @@ func TestLatencyPercentile(t *testing.T) {
 var statusKeys = []string{
 	"client_states", "clients_seen", "decoded", "decoded72", "encode_us_max", "encode_us_p99",
 	"encoded", "ignored", "last_decode", "last_encode", "lookahead", "resets", "started",
-	"state", "updated", "version",
+	"state", "tones", "updated", "version",
 }
 
 func TestStatusSnapshot(t *testing.T) {

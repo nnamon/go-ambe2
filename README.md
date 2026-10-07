@@ -84,7 +84,7 @@ out, derr := ddec.DecodeFrame(&df)
 | AMBE 3600x2400 (D-STAR) | encode + decode | encode + decode | decode |
 | soft-decision FEC | exact maximum likelihood, all formats | yes | no |
 | IMBE adaptive smoothing (TIA-102.BABA ch. 9) | yes | yes | no |
-| tone frames | AMBE+2: decode, and build with `ToneFrame`; D-STAR: single tones | decode | detected, played as silence |
+| tone frames | AMBE+2: decode, detect in the encoder (`Tones`), and build with `ToneFrame`; D-STAR: single tones | decode | detected, played as silence |
 | licence | not yet chosen | GPL-2.0-or-later | ISC |
 
 Where this library and the C libraries disagree, each reading was checked against the specifications, OP25 and real frames. The differences matter when decoding real traffic:
@@ -108,7 +108,7 @@ mbelib-neo's decoders are much faster, at 7–8 µs a frame against 28–32 µs 
 
 | package | contents |
 |---|---|
-| `p25half` | AMBE+2 3600x2450 (TIA-102.BABA-1). `Encoder`: speech analysis, voice activity detection, quantization. `Decoder`: enhancement and synthesis, frame repeat and muting, tone frames (`ToneFrame`, `ToneParams`, `IsTone`), `Decode72` / `Decode72Soft` |
+| `p25half` | AMBE+2 3600x2450 (TIA-102.BABA-1). `Encoder`: speech analysis, voice activity detection, tone detection (optional), quantization. `Decoder`: enhancement and synthesis, frame repeat and muting, tone frames (`ToneFrame`, `ToneParams`, `IsTone`), `Decode72` / `Decode72Soft` |
 | `quant` | half-rate parameter quantizer: `Predictor.Quantize` (encoder search) and `Predictor.Dequantize` (decoder-side reconstruction, shared so the encoder tracks the decoder exactly), for a `Codebook`: `AMBE2` or `DStar` |
 | `fec` | AMBE+2 49 ↔ 72-bit channel coding: [24,12]/[23,12] Golay, PN modulation, Annex H / DMR interleave, with hard and soft error-correcting decode |
 | `frame` | the AMBE+2 49-bit frame: b0..b8 bit layout (with conversions to and from the draft standard's, `FromDraftLayout` / `ToDraftLayout`), DSD `.amb`, text and 7-byte wire (`Pack7`) forms |
@@ -174,7 +174,14 @@ AMBE+2 encoder and quantizer:
 * **b1 candidates [MD-380].** b1 is chosen from the 17 codewords BABA-1 allows, minus the table's exact duplicates (1, 3, 13, 15). The MD-380 decoder renders those duplicates as partially voiced rather than as tabulated. It also gives codewords 17–31 meanings beyond the table, which is why only the standard-consistent entries are used.
 * **Silence frames carry b1 = 16 [MD-380]** (all unvoiced), as the MD-380 encoder does. BABA-1 says 0, and decoders ignore b1 in silence frames.
 * **Voice activity detection [MD-380]** is not specified by the standards. It is an energy detector: noise-floor tracking, 15 dB margin, 4-frame hangover, 1-frame look-ahead. Its parameters were fitted to the MD-380 encoder's silence decisions, and agree with them on 87% of held-out frames. Set `Silence: false` to always send voice frames.
-* **Tones.** The encoder does no tone detection, but `ToneFrame` builds tone frames for applications that send DTMF and similar tones. The encoder never emits erasure frames.
+* **Tone frames [MD-380]** are optional (`Config.Tones`, `mbevoc-enc -tones`, `ambe-server -tones`); BABA-1 §7.1 leaves the detector to the implementer. With them, a frame is sent as a tone frame when the 40 ms around it is:
+  * one steady tone of 141–3828 Hz, which takes index round(f / 31.25) (5–122): all but 22 dB of the energy in one spectral main lobe no wider than a pure tone's, with its 2nd and 3rd harmonics each at least 30 dB down;
+  * or two tones within 10 dB of each other, with all but 15 dB of the energy in their two lobes, both within 2.5% of a Table 9 pair (DTMF, KNOX or call progress); the nearest pair's index is sent.
+
+  The amplitude code AD counts 0.711 dB steps up to 127 for a full-scale tone, from the geometric mean level of a pair. Frames below −50 dBFS are never tones. A tone frame leaves the quantizer's prediction state alone, as the decoder's stays over it, so voice frames after a tone decode exactly as the encoder computed. `ToneFrame` builds tone frames directly for applications that send tones themselves. The encoder never emits erasure frames.
+  * **Speech:** on the 24 corpus recordings (48,742 frames), no tone frame is sent and the output is byte-identical to encoding without tones; the MD-380 sent none either. The two tests are independent safeguards. The speech frame closest to the energy test is 0.6 dB from it but has a harmonic 4 dB too strong; speech frames that pass the harmonic test are at least 6 dB from the energy test.
+  * **Against the MD-380 encoder** (`research/tools/tone_compare.py`, 138 conditions: single tones from 100 to 3,900 Hz, off-grid tones, levels, all 36 Table 9 pairs, frequency offsets, twist, white noise, short bursts): where both sent tone frames (119 conditions), the index was always the same and AD within one step. Only the MD-380 sent tone frames in 6 conditions, all deliberate differences: tones below −50 dBFS (it detects down to −60), 480 + 440 Hz ringback (40 Hz apart, which 40 ms cannot separate; it goes as voice), a single tone at 20 dB SNR (this needs about 22 dB), a 20 ms burst, and 10 dB twist, where the MD-380 sends AD 0. This encoder never sent a tone frame where the MD-380 did not. A steady tone yields one tone frame fewer at each end than the MD-380's, which also marks the frames on either side.
+  * **Round trip:** tone frames from this encoder, decoded by this decoder or the MD-380's, give Annex J's frequencies (766.7/1341.8 Hz for DTMF "5") at the input level within 0.6 dB.
 
 AMBE+2 decoder:
 
@@ -283,6 +290,7 @@ Speed per 20 ms frame, measured on one core of an Apple M4:
 
 * **IMBE encodes faster** because its quantizers are scalar; AMBE+2 and D-STAR search 65,536 PRBA codebook pairs a frame.
 * **Soft-decision decoding** adds about 5 µs per Golay word.
+* **Tone detection** (`Tones`) adds about 10 µs to every AMBE+2 frame; frames sent as tones skip the quantizer search and take about 50 µs.
 
 * **How measured:**
   * the same 47-second recording (2,346 frames), best of 7 runs of each command-line tool, CPU time including file I/O;
@@ -337,6 +345,7 @@ One UDP datagram carries one 20 ms frame, and requests are dispatched on datagra
 | `-idle`, `-max-clients` | `30s`, `256` | with `-state client`: drop a client's state after this long unused, and keep at most this many (least recently used goes first) |
 | `-lookahead` | `2` | encoder look-ahead: `2` for best quality (60 ms codec delay), `1` for 39 ms (−0.025 PESQ) |
 | `-silence` | `true` | send silence frames for non-speech input |
+| `-tones` | `false` | send tone frames for steady single tones and for DTMF, KNOX and call-progress tones, as md380-emu does (see Deviations) |
 | `-fec` | `false` | reply to PCM with 9-byte FEC-coded 72-bit frames instead of 7-byte frames |
 | `-standard`, `-silence-gain` | off, `0.228` | decoder synthesis options (see `DecoderConfig`) |
 | `-reset-gap` | `0` (off) | start a fresh encoder when encoding resumes after a gap longer than this, and a fresh decoder when decoding does; each side on its own, and per client with `-state client`. `200ms` suits Analog_Bridge (see Deploying). |
@@ -402,6 +411,7 @@ With `-stats-file /run/ambe-server/stats.json`, the server writes its status at 
   "encode_us_p99": 1346,
   "lookahead": 2,
   "state": "shared",
+  "tones": false,
   "resets": 2
 }
 ```
@@ -415,7 +425,7 @@ With `-stats-file /run/ambe-server/stats.json`, the server writes its status at 
 | `client_states` | per-client states held (0 in shared mode) |
 | `last_encode`, `last_decode` | Unix time of the last encode and decode request; `null` before the first |
 | `encode_us_max`, `encode_us_p99` | time to answer an encode request since start-up, in µs: the maximum, and the 99th percentile (exact to 1 µs, capped at 20,000) |
-| `lookahead`, `state` | the `-lookahead` and `-state` settings |
+| `lookahead`, `state`, `tones` | the `-lookahead`, `-state` and `-tones` settings |
 | `resets` | encoders and decoders replaced by `-reset-gap` |
 
 Request times are wall-clock times on the host, including CPU frequency changes. On an Apple M4, 500 frames sent back to back had a p99 of 292 µs. The same frames sent every 20 ms, as a bridge sends them, had a p99 of 1,896 µs, because the mostly idle CPU runs slower.
@@ -440,7 +450,7 @@ As shipped, DVSwitch's md380-emu crashed with a segmentation fault on its first 
 ### Differences from md380-emu that matter in a bridge
 
 * **Audio from radios to the analog side:** decoding frames from real radios (DVSI's encoder) scores 2.950 / 0.802 here against md380-emu's 3.114 / 0.804. Audio towards radios scores higher than md380-emu's own: 3.204 / 0.825 against 3.114 / 0.804, both through the MD-380 decoder.
-* **Tones:** md380-emu's encoder detects steady tones and sends tone frames. `ambe-server` has no tone detection, so DTMF and other tones on the analog side go out as voice frames. It does decode tone frames, and `ToneFrame` builds them for applications that need to send tones.
+* **Tones:** md380-emu's encoder detects steady tones and sends tone frames. `ambe-server` does too with `-tones`, with the same tone indices and levels (see Deviations). Without it, DTMF and other tones on the analog side go out as voice frames. Tone frames are decoded either way.
 * **Codec delay:** 60 ms by default against md380-emu's 45 ms, or 39 ms with `-lookahead 1`.
 * **Exposure:** it listens on loopback only unless `-host` says otherwise. md380-emu answers anyone on the network who reaches its port.
 * **Not yet tested:** a live Analog_Bridge deployment, and ARM boards such as the Raspberry Pi, where speed has not been measured.
@@ -456,6 +466,7 @@ As shipped, DVSwitch's md380-emu crashed with a segmentation fault on its first 
 * the full codec loop: level and pitch through encode and decode;
 * `Decode72` against `Decode`, and the repeat-then-mute sequence;
 * tone frames: frequencies, levels and ID 255;
+* tone detection: single tones across the band and every Table 9 pair (frequency within 1 Hz or 0.5%, level within 0.3 dB), tolerance of noise, and rejection of voiced-speech-like harmonics, noise, three tones, excess twist, chirps, square waves and quiet input; 480 + 440 Hz never passing as a single tone; the index and AD mapping; a DTMF digit sequence; voice frames after a tone decoding exactly as encoded; the round trip through the decoder; and no tone frames on the speech corpus (skipped without it, or with `-short`);
 * the silence-frame level, and decoder determinism;
 * `ambe-server`: the protocol replies, both state modes, idle expiry and eviction, and a real UDP round trip; `-reset-gap` (a resumed transmission matches a fresh encoder or decoder, each side is reset independently, per client, and only for a gap longer than the setting); the status file (fields, percentiles, atomic replacement, and updates while idle);
 * encoders running in parallel, which share read-only tables (`go test -race`);
@@ -484,7 +495,7 @@ This section records what was checked. It is not legal advice: check the positio
 
 | patent | claims | in force until | this module |
 |---|---|---|---|
-| US 8,359,197, "Half-rate vocoder" | encoding (claim 1) and decoding (claim 42) with pitch, voicing and gain bits combined in a first error-protected codeword; dependent claims add AMBE+2's 4+4+4-bit c0, Golay coding, PN scrambling keyed from c0, tone frames and frame repeats | 2028-05-20 in the US. Its European counterpart, EP 1 465 158, expired on 2024-03-26 | **`p25half`, the AMBE+2 modes of the commands, and `ambe-server` fall within claims 1 and 42**, as any AMBE+2 3600x2450 implementation does |
+| US 8,359,197, "Half-rate vocoder" | encoding (claim 1) and decoding (claim 42) with pitch, voicing and gain bits combined in a first error-protected codeword; dependent claims add AMBE+2's 4+4+4-bit c0, Golay coding, PN scrambling keyed from c0, tone frames and frame repeats | 2028-05-20 in the US. Its European counterpart, EP 1 465 158, expired on 2024-03-26 | **`p25half`, the AMBE+2 modes of the commands, and `ambe-server` fall within claims 1 and 42**, as any AMBE+2 3600x2450 implementation does. With `Tones`, the encoder also performs the tone steps of dependent claims 16–19. |
 | US 12,462,814, "Bit error correction in digital speech" | soft decoding that tries several candidates for the first codeword and keeps the one with the least total distance across all the frame's codes | 2044-05-07 | outside the published claims: every soft decoder here decodes c0 on its own, then the other codewords |
 | US 12,451,151, "Tone frame detector for digital speech" | finding tone frames by their distance to candidate tone frames, against thresholds | 2042-06-14 | outside the published claims: tone frames are recognised by an exact six-bit pattern (BABA-1 §7), and the tone index by a majority vote of its copies |
 | US 11,990,144 | non-voice data carried in voice frames | 2041 | not implemented |

@@ -61,6 +61,10 @@ type Encoder struct {
 
 	fits [mbe.MaxL + 1]mbe.HarmonicFit
 
+	// The frame analysed by the latest Analyze.
+	pi, ei float64
+	silent bool
+
 	// Last holds the analysis of the most recent frame.
 	Last Analysis
 }
@@ -100,10 +104,26 @@ func (e *Encoder) Delay() int { return e.fe.Delay() }
 // Encode consumes the next 20 ms of audio and returns the next frame's
 // quantizer values.
 func (e *Encoder) Encode(pcm *[mbe.FrameSamples]int16) frame.Params {
-	PI, EI := e.fe.Push(pcm)
-	silent := e.cfg.Silence && e.vad.Silent(e.fe.Energies())
-	return e.encodeFrame(PI, EI, silent)
+	e.Analyze(pcm)
+	return e.Quantize()
 }
+
+// Analyze consumes the next 20 ms of audio and analyses the frame to be
+// encoded next, without quantizing it.  Quantize then encodes that frame.
+// A caller that sends something else in its place (a tone frame) skips
+// Quantize, which leaves the prediction state as a decoder's stays over
+// such a frame.
+func (e *Encoder) Analyze(pcm *[mbe.FrameSamples]int16) {
+	e.pi, e.ei = e.fe.Push(pcm)
+	e.silent = e.cfg.Silence && e.vad.Silent(e.fe.Energies())
+}
+
+// Quantize encodes the frame analysed by the latest Analyze.
+func (e *Encoder) Quantize() frame.Params { return e.encodeFrame(e.pi, e.ei, e.silent) }
+
+// Samples returns n high-pass filtered input samples centred on the frame
+// analysed by the latest Analyze (n even, at most 2·mbe.FrameSamples).
+func (e *Encoder) Samples(n int) []float64 { return e.fe.Samples(n) }
 
 // encodeFrame turns the analysed frame into quantizer values.
 func (e *Encoder) encodeFrame(PI, EI float64, silent bool) frame.Params {

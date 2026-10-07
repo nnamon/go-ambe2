@@ -98,6 +98,10 @@ func (f *Frontend) Push(pcm *[FrameSamples]int16) (PI, EI float64) {
 	return PI, EI
 }
 
+// Samples returns the n high-pass filtered input samples centred on the
+// frame analysed by the latest Push (n even, at most 2·FrameSamples).
+func (f *Frontend) Samples(n int) []float64 { return f.hist[f.c-n/2 : f.c+n/2] }
+
 // Energies returns the mean-square input level of the frame analysed by the
 // latest Push (its 160 samples) and of the 160 samples after it.
 func (f *Frontend) Energies() (cur, next float64) {

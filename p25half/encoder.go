@@ -44,15 +44,38 @@ type Config struct {
 	VoicingScale float64
 	// WeightPower selects the quantizer's error weighting (see quant.Target).
 	WeightPower float64
+	// Tones enables tone frames (TIA-102.BABA-1 clause 7): a frame that is a
+	// steady single tone of 141-3828 Hz, or one of the dual tones of Table 9
+	// (DTMF, KNOX, call progress), is sent as a tone frame instead of a voice
+	// frame, as the MD-380's encoder does.  See mbe.ToneDetector for the
+	// criteria.
+	Tones bool
 }
 
 // DefaultConfig returns the default encoder configuration.
-func DefaultConfig() Config { return Config(halfrate.DefaultConfig()) }
+func DefaultConfig() Config {
+	h := halfrate.DefaultConfig()
+	return Config{
+		Lookahead: h.Lookahead, RefineMinBin: h.RefineMinBin, MatchedAmplitudes: h.MatchedAmplitudes,
+		Silence: h.Silence, SilenceAttenuation: h.SilenceAttenuation, GainOffset: h.GainOffset,
+		VoicingScale: h.VoicingScale, WeightPower: h.WeightPower,
+	}
+}
+
+// engine returns the configuration of the shared encoder engine.
+func (c Config) engine() halfrate.Config {
+	return halfrate.Config{
+		Lookahead: c.Lookahead, RefineMinBin: c.RefineMinBin, MatchedAmplitudes: c.MatchedAmplitudes,
+		Silence: c.Silence, SilenceAttenuation: c.SilenceAttenuation, GainOffset: c.GainOffset,
+		VoicingScale: c.VoicingScale, WeightPower: c.WeightPower,
+	}
+}
 
 // Encoder converts 8 kHz 16-bit PCM into AMBE+2 3600x2450 frames.
 // It is not safe for concurrent use.
 type Encoder struct {
-	e *halfrate.Encoder
+	e     *halfrate.Encoder
+	tones *mbe.ToneDetector // nil unless Config.Tones
 
 	// Diagnostics for the most recent frame.
 	Last Analysis
@@ -68,6 +91,11 @@ type Analysis struct {
 	Params  frame.Params
 	Target  quant.Target // what the quantizer was asked to encode
 	Model   quant.Model  // what a decoder reconstructs
+
+	// For a tone frame (Config.Tones), the Table 9 index and amplitude code;
+	// the fields above are then zero.
+	Tone            bool
+	ToneID, ToneAmp int
 }
 
 // NewEncoder returns an encoder with DefaultConfig.
@@ -75,7 +103,11 @@ func NewEncoder() *Encoder { return NewEncoderConfig(DefaultConfig()) }
 
 // NewEncoderConfig returns an encoder with the given configuration.
 func NewEncoderConfig(cfg Config) *Encoder {
-	return &Encoder{e: halfrate.NewEncoder(halfrate.Config(cfg), quant.AMBE2)}
+	e := &Encoder{e: halfrate.NewEncoder(cfg.engine(), quant.AMBE2)}
+	if cfg.Tones {
+		e.tones = mbe.NewToneDetector()
+	}
+	return e
 }
 
 // Delay is the encoder's algorithmic delay in samples: the frame returned by
@@ -84,7 +116,19 @@ func (e *Encoder) Delay() int { return e.e.Delay() }
 
 // Encode consumes the next 20 ms of audio and returns one 49-bit frame.
 func (e *Encoder) Encode(pcm *[FrameSamples]int16) frame.Bits {
-	p := e.e.Encode(pcm)
-	e.Last = Analysis(e.e.Last)
+	e.e.Analyze(pcm)
+	if e.tones != nil {
+		if t, ok := e.tones.Detect(e.e.Samples(mbe.ToneWindow)); ok {
+			if id, amp, ok := toneIndex(t); ok {
+				// The quantizer is left alone, as a decoder's is over a tone frame.
+				e.Last = Analysis{Tone: true, ToneID: id, ToneAmp: amp}
+				return ToneFrame(id, amp)
+			}
+		}
+	}
+	p := e.e.Quantize()
+	a := e.e.Last
+	e.Last = Analysis{PInit: a.PInit, EInit: a.EInit, W0: a.W0, Xi0: a.Xi0, Silence: a.Silence,
+		Params: a.Params, Target: a.Target, Model: a.Model}
 	return p.Bits()
 }

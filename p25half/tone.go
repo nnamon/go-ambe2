@@ -94,6 +94,59 @@ func toneMBE(id int) (f0 float64, l1, l2 int, ok bool) {
 	return t.f0, t.l1, t.l2, found
 }
 
+// tonePairs are the dual tones of TIA-102.BABA-1 Table 9: index, and the
+// higher and lower frequency (Hz).
+var tonePairs = [...]struct {
+	id     int
+	hi, lo float64
+}{
+	{128, 1336, 941}, {129, 1209, 697}, {130, 1336, 697}, {131, 1477, 697}, // DTMF 0-3
+	{132, 1209, 770}, {133, 1336, 770}, {134, 1477, 770}, {135, 1209, 852}, // DTMF 4-7
+	{136, 1336, 852}, {137, 1477, 852}, {138, 1633, 697}, {139, 1633, 770}, // DTMF 8, 9, A, B
+	{140, 1633, 852}, {141, 1633, 941}, {142, 1209, 941}, {143, 1477, 941}, // DTMF C, D, *, #
+	{144, 1162, 820}, {145, 1052, 606}, {146, 1162, 606}, {147, 1279, 606}, // KNOX 0-3
+	{148, 1052, 672}, {149, 1162, 672}, {150, 1279, 672}, {151, 1052, 743}, // KNOX 4-7
+	{152, 1162, 743}, {153, 1279, 743}, {154, 1430, 606}, {155, 1430, 672}, // KNOX 8, 9, A, B
+	{156, 1430, 743}, {157, 1430, 820}, {158, 1052, 820}, {159, 1279, 820}, // KNOX C, D, *, #
+	{160, 440, 350}, {161, 480, 440}, {162, 620, 480}, {163, 490, 350}, // call progress
+}
+
+// tonePairTolerance is the most each frequency of a dual tone may differ
+// from its Table 9 value (the MD-380 accepts 2% and rejects 3%).
+const tonePairTolerance = 0.025
+
+// toneIndex returns the Table 9 index and amplitude code AD for a detected
+// tone, or ok = false if Table 9 has no such tone.  A single tone takes the
+// index of the nearest multiple of 31.25 Hz (5-122); a dual tone that of
+// the pair whose frequencies are both within tonePairTolerance, the nearest
+// if several are.  AD counts 0.711 dB steps (eq. 68) up to 127 at full scale
+// (a 32767 peak), from the geometric mean level of a dual tone's two
+// components, as the MD-380's encoder does.
+func toneIndex(t mbe.Tone) (id, ad int, ok bool) {
+	a := t.A1
+	if t.F2 == 0 {
+		id = int(math.Round(t.F1 / 31.25))
+		if id < 5 || id > 122 {
+			return 0, 0, false
+		}
+	} else {
+		hi, lo := math.Max(t.F1, t.F2), math.Min(t.F1, t.F2)
+		best := math.Inf(1)
+		for _, p := range tonePairs {
+			dh, dl := math.Abs(hi/p.hi-1), math.Abs(lo/p.lo-1)
+			if dh <= tonePairTolerance && dl <= tonePairTolerance && dh+dl < best {
+				id, best = p.id, dh+dl
+			}
+		}
+		if id == 0 {
+			return 0, 0, false
+		}
+		a = math.Sqrt(t.A1 * t.A2)
+	}
+	ad = int(math.Round(127 + math.Log10(a/32767)/0.03555))
+	return id, max(0, min(127, ad)), true
+}
+
 // toneLevel is the MD-380 decoder's tone level relative to the Annex J
 // amplitude (eq. 68), measured on single tones (+0.47 dB).
 const toneLevel = 1.056

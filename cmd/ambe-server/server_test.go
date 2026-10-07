@@ -103,6 +103,34 @@ func TestDecode72Reply(t *testing.T) {
 	}
 }
 
+// TestTonesOption checks that with the encoder's tone frames enabled
+// (-tones), a DTMF digit is answered with tone frames.
+func TestTonesOption(t *testing.T) {
+	cfg := testConfig()
+	cfg.encoder.Tones = true
+	s := newServer(cfg)
+	tones := 0
+	for k := 0; k < 25; k++ {
+		req := make([]byte, pcmBytes)
+		for i := 0; i < p25half.FrameSamples; i++ {
+			n := float64(k*p25half.FrameSamples + i)
+			v := 6000*math.Sin(2*math.Pi*1336*n/8000) + 6000*math.Sin(2*math.Pi*770*n/8000)
+			binary.LittleEndian.PutUint16(req[2*i:], uint16(int16(v)))
+		}
+		var p [ambe49Size]byte
+		copy(p[:], s.handle(req, "a"))
+		if b := frame.Unpack7(p); p25half.IsTone(&b) {
+			if id, _ := p25half.ToneParams(&b); id != 133 {
+				t.Fatalf("frame %d: tone index %d, want 133 (DTMF 5)", k, id)
+			}
+			tones++
+		}
+	}
+	if tones < 20 {
+		t.Errorf("%d tone frames in 25 frames of DTMF", tones)
+	}
+}
+
 func TestIgnoredLengths(t *testing.T) {
 	s := newServer(testConfig())
 	for _, n := range []int{0, 1, 6, 8, 10, 160, 319, 321, 640, 1500} {

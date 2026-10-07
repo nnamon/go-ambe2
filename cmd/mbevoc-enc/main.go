@@ -43,6 +43,7 @@ func main() {
 	flag.Float64Var(&cfg.GainOffset, "gain", cfg.GainOffset, "log2 gain offset added to all amplitudes")
 	flag.Float64Var(&cfg.VoicingScale, "vscale", cfg.VoicingScale, "V/UV threshold scale (0 = 1)")
 	flag.Float64Var(&cfg.WeightPower, "wpow", cfg.WeightPower, "quantizer amplitude-weighting power (0 = unweighted)")
+	flag.BoolVar(&cfg.Tones, "tones", cfg.Tones, "AMBE+2: send tone frames for steady single tones and the dual tones of TIA-102.BABA-1 Table 9 (DTMF, KNOX, call progress)")
 	trace := flag.Bool("trace", false, "print per-frame analysis to stderr")
 	codec := flag.String("codec", "", "ambe2, imbe or dstar (default: by output file name)")
 	draft := flag.Bool("draft-layout", false, "place b3/b4 bits as the draft standard's Table 8 does (for mbelib/DSD), not as DVSI radios do")
@@ -68,6 +69,10 @@ func main() {
 	case "ambe2":
 		err = run(cfg, flag.Arg(0), flag.Arg(1), *trace, *draft)
 	case "imbe", "dstar":
+		if cfg.Tones {
+			err = errors.New("-tones applies to AMBE+2 only")
+			break
+		}
 		var f *os.File
 		var r *bufio.Reader
 		if f, r, err = openPCM(flag.Arg(0)); err == nil {
@@ -119,8 +124,9 @@ func run(cfg p25half.Config, in, out string, trace, draft bool) error {
 			return err
 		}
 		frames = append(frames, enc.Encode(&pcm))
-		if trace {
-			a := enc.Last
+		if a := enc.Last; trace && a.Tone {
+			fmt.Fprintf(os.Stderr, "%d tone ID=%d AD=%d\n", len(frames)-1, a.ToneID, a.ToneAmp)
+		} else if trace {
 			fmt.Fprintf(os.Stderr, "%d PI=%.1f EI=%.3f w0=%.4f xi0=%.0f sil=%v b=%v\n",
 				len(frames)-1, a.PInit, a.EInit, a.W0, a.Xi0, a.Silence, a.Params)
 		}

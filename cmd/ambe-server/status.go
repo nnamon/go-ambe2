@@ -72,6 +72,7 @@ type status struct {
 	EncodeUsP99  int64    `json:"encode_us_p99"`
 	Lookahead    int      `json:"lookahead"`
 	State        string   `json:"state"`
+	Tones        bool     `json:"tones"`
 	Resets       uint64   `json:"resets"`
 }
 
@@ -103,6 +104,7 @@ func (s *server) status(now time.Time, version string) status {
 		EncodeUsP99:  s.encodeUs.percentile(99),
 		Lookahead:    s.cfg.encoder.Lookahead,
 		State:        "shared",
+		Tones:        s.cfg.encoder.Tones,
 		Resets:       s.stats.resets,
 	}
 	if s.cfg.perClient {

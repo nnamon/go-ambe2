@@ -29,7 +29,8 @@ research/setup.sh          # needs git, curl, make, cc/c++, go, python3 (pdftote
 | `tools/Makefile` | builds into `bin/`: the Go CLIs, `mbelib-dec` (mbelib's AMBE+2, IMBE and D-STAR decoders, with parameter dump), `op25-enc` (OP25's AMBE+2 encoder), `op25-imbe` (OP25's IMBE encoder, decoder and P25 frame coder), `neo-codec` (mbelib-neo's decoders, D-STAR encoder and frame coders; GPL, used only here) and `fec-xcheck` (mbelib FEC reference) |
 | `tools/mkcorpus.sh`, `eval_go.sh`, `eval_dec.sh`, `score.py`, `score_dec.py` | corpus preparation and PESQ-NB / STOI scoring of every encoder × decoder pairing |
 | `tools/param_diff.py`, `lsd.py`, `level_by_voicing.py`, `dec_divergence.py`, `ltas.py` | diagnostics: parameter agreement, spectral distance, level per voicing class, long-term spectra |
-| `tools/probe_*.py`, `collect_phase.py`, `fit_*.py`, `shape_regress.py`, `amp_compare.py`, `remap_b1.py` | black-box probes of MD-380 decoder behaviour (see Findings) |
+| `tools/probe_*.py`, `collect_phase.py`, `fit_*.py`, `shape_regress.py`, `amp_compare.py`, `remap_b1.py` | black-box probes of MD-380 decoder behaviour (see Findings); `probe_tone_detect.py` probes its encoder's tone detection |
+| `tools/tone_compare.py` | tone frames from the MD-380 encoder and `mbevoc-enc -tones` under the same 138 conditions |
 | `tools/masked_pesq.py`, `env_error_profile.py`, `level_by_input.py`, `uv_texture.py`, `excess_by_index.py` | decoder comparisons on the same bitstreams: PESQ per frame class, envelope error, level and noise texture per class, excess error per codebook entry |
 | `tools/spec_tables.py` | extracts the codebook annexes A–G from the BABA-1 PDF and compares them with mbelib's tables (needs `papers/`) |
 | `tools/from_draft_layout.py` | converts `.amb`/`.bits` files from the draft standard's b3/b4 placement (OP25) to the MD-380's |
@@ -101,6 +102,14 @@ Each is reproducible with the scripts named.
   * they are synthesized from the BABA-1 Annex J MBE representation (DTMF "0" at 942.0/1334.6 Hz);
   * no enhancement is applied, and each component plays at 1.056× the eq. 68 amplitude.
 * **Tone detection (`probe_tone.py`):** a tone frame is detected by the first six bits of u0, even when b0 is 120–123.
+* **Tone frames from the encoder (`probe_tone_detect.py`):** BABA-1 §7.1 leaves the detector open. The MD-380's:
+  * sends single tones from 150 to 3,800 Hz as index round(f / 31.25), 5–122, and any frequency in between, with no tolerance window around the 31.25 Hz grid;
+  * recognises all 36 Table 9 pairs (DTMF, KNOX, call progress), each tone within 2% (not 3%) of its nominal frequency; beyond that it picks another pair if one is near, or none;
+  * accepts dual tones whose levels differ by up to 10 dB (not 12);
+  * sets AD in 0.711 dB steps from 127 at full scale, from the geometric mean of a pair's two levels, down to at least −60 dBFS;
+  * still detects DTMF at 15 dB SNR in white noise (not 10), and a single tone at 20 dB (not 15);
+  * sends tone frames for any tone it sees, even a 20 ms burst (two tone frames), and for a steady tone of N frames sends N + 1;
+  * sent no tone frame in the 48,742 frames of the speech corpus (its `fw.amb` encodings).
 * **Voicing codewords (`probe_vuv.py`):**
   * codewords 1, 3, 11, 13, 15 and 17 decode as partially voiced;
   * 18–31 decode as unvoiced with redistributed band energy;
