@@ -47,6 +47,7 @@ func main() {
 	reply72 := flag.Bool("fec", false, "reply to PCM with 9-byte FEC-coded 72-bit frames instead of 7-byte frames")
 	lookahead := flag.Int("lookahead", 2, "encoder pitch look-ahead frames: 2 (best quality, 60 ms codec delay) or 1 (39 ms)")
 	silence := flag.Bool("silence", true, "send silence frames for non-speech input")
+	denoise := flag.Bool("denoise", false, "suppress steady background noise (hiss, hum) before encoding; adds 20 ms of delay")
 	tones := flag.Bool("tones", false, "send tone frames for steady single tones and DTMF/KNOX/call-progress tones, as md380-emu does")
 	standard := flag.Bool("standard", false, "decode with the TIA-102.BABA phase model exactly")
 	silGain := flag.Float64("silence-gain", p25half.SilenceGain, "decoder amplitude factor for silence frames (1 = standard)")
@@ -77,6 +78,7 @@ func main() {
 	enc.Lookahead = *lookahead
 	enc.Silence = *silence
 	enc.Tones = *tones
+	enc.Denoise = *denoise
 	cfg := config{
 		perClient:  *state == "client",
 		idle:       *idle,
@@ -96,7 +98,7 @@ func main() {
 		log.Fatalf("ambe-server: %v", err)
 	}
 	version := buildVersion()
-	log.Printf("ambe-server %s: listening on udp %s (state %s, look-ahead %d, reset gap %v, tones %v)", version, conn.LocalAddr(), *state, *lookahead, *resetGap, *tones)
+	log.Printf("ambe-server %s: listening on udp %s (state %s, look-ahead %d, reset gap %v, tones %v, denoise %v)", version, conn.LocalAddr(), *state, *lookahead, *resetGap, *tones, *denoise)
 
 	s := newServer(cfg)
 	p25half.NewEncoderConfig(enc) // builds the encoders' shared tables now, not on the first request

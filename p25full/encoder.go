@@ -3,6 +3,7 @@ package p25full
 import (
 	"math"
 
+	"github.com/nnamon/mbevoc/internal/denoise"
 	"github.com/nnamon/mbevoc/internal/mbe"
 )
 
@@ -17,6 +18,9 @@ type Config struct {
 	// VoicingScale multiplies the V/UV thresholds of TIA-102.BABA eq. 37
 	// (> 1 declares more bands voiced).  Zero means 1.
 	VoicingScale float64
+	// Denoise suppresses steady background noise before encoding (see
+	// p25half.Config.Denoise).  It adds 20 ms of delay.
+	Denoise bool
 }
 
 // DefaultConfig returns the default encoder configuration.
@@ -33,6 +37,7 @@ type Encoder struct {
 	pred predictor
 	fits [MaxL + 2]mbe.HarmonicFit
 	sync uint16
+	ns   *denoise.Suppressor // with Config.Denoise
 
 	// Last holds the most recent frame's quantizer values.
 	Last Params
@@ -55,16 +60,29 @@ func NewEncoderConfig(cfg Config) *Encoder {
 	if cfg.VoicingScale != 0 {
 		e.vuv.Scale = cfg.VoicingScale
 	}
+	if cfg.Denoise {
+		e.ns = denoise.New(denoise.DefaultConfig())
+	}
 	return e
 }
 
 // Delay is the encoder's algorithmic delay in samples: the frame returned by
 // Encode is centred this many samples before the end of the input so far.
-func (e *Encoder) Delay() int { return e.fe.Delay() }
+func (e *Encoder) Delay() int {
+	if e.ns != nil {
+		return e.fe.Delay() + denoise.Delay
+	}
+	return e.fe.Delay()
+}
 
 // Encode consumes the next 20 ms of audio and returns one 88-bit frame; use
 // Bits.Encode for the 144-bit frame carried on air.
 func (e *Encoder) Encode(pcm *[FrameSamples]int16) Bits {
+	if e.ns != nil {
+		clean := *pcm
+		e.ns.ProcessPCM(clean[:])
+		pcm = &clean
+	}
 	PI, EI := e.fe.Push(pcm)
 	sp := e.fe.Sp
 	lf, hf, xi0 := e.vuv.Track(sp)

@@ -9,6 +9,7 @@ import (
 	"math"
 
 	"github.com/nnamon/mbevoc/frame"
+	"github.com/nnamon/mbevoc/internal/denoise"
 	"github.com/nnamon/mbevoc/internal/mbe"
 	"github.com/nnamon/mbevoc/quant"
 )
@@ -23,6 +24,7 @@ type Config struct {
 	GainOffset         float64
 	VoicingScale       float64
 	WeightPower        float64
+	Denoise            bool
 }
 
 // DefaultConfig returns the default encoder configuration.
@@ -65,6 +67,12 @@ type Encoder struct {
 	pi, ei float64
 	silent bool
 
+	// With Denoise: the suppressor, and the high-pass filtered input before
+	// suppression (for Samples), newest at the end.
+	ns         *denoise.Suppressor
+	raw        [rawLen]float64
+	rawX, rawY float64
+
 	// Last holds the analysis of the most recent frame.
 	Last Analysis
 }
@@ -95,11 +103,33 @@ func NewEncoder(cfg Config, cb *quant.Codebook) *Encoder {
 	if cfg.VoicingScale != 0 {
 		e.vuv.Scale = cfg.VoicingScale
 	}
+	if cfg.Denoise {
+		e.ns = denoise.New(denoise.DefaultConfig())
+	}
 	return e
 }
 
+const rawLen = 1024
+
+// Reset returns the encoder to its initial state, for a new transmission,
+// except that the noise suppressor keeps its estimate of the background
+// noise, which outlasts a pause in the same channel.
+func (e *Encoder) Reset() {
+	ns := e.ns
+	*e = *NewEncoder(e.cfg, e.cb)
+	if ns != nil {
+		ns.Flush()
+		e.ns = ns
+	}
+}
+
 // Delay is the encoder's algorithmic delay in samples.
-func (e *Encoder) Delay() int { return e.fe.Delay() }
+func (e *Encoder) Delay() int {
+	if e.ns != nil {
+		return e.fe.Delay() + denoise.Delay
+	}
+	return e.fe.Delay()
+}
 
 // Encode consumes the next 20 ms of audio and returns the next frame's
 // quantizer values.
@@ -114,16 +144,41 @@ func (e *Encoder) Encode(pcm *[mbe.FrameSamples]int16) frame.Params {
 // Quantize, which leaves the prediction state as a decoder's stays over
 // such a frame.
 func (e *Encoder) Analyze(pcm *[mbe.FrameSamples]int16) {
+	if e.ns != nil {
+		pcm = e.suppress(pcm)
+	}
 	e.pi, e.ei = e.fe.Push(pcm)
 	e.silent = e.cfg.Silence && e.vad.Silent(e.fe.Energies())
+}
+
+// suppress keeps the input's high-pass filtered history (the front end's
+// filter) and returns the input with the background noise suppressed.
+func (e *Encoder) suppress(pcm *[mbe.FrameSamples]int16) *[mbe.FrameSamples]int16 {
+	copy(e.raw[:], e.raw[mbe.FrameSamples:])
+	for i, v := range pcm {
+		x := float64(v)
+		y := x - e.rawX + 0.99*e.rawY
+		e.rawX, e.rawY = x, y
+		e.raw[rawLen-mbe.FrameSamples+i] = y
+	}
+	out := *pcm
+	e.ns.ProcessPCM(out[:])
+	return &out
 }
 
 // Quantize encodes the frame analysed by the latest Analyze.
 func (e *Encoder) Quantize() frame.Params { return e.encodeFrame(e.pi, e.ei, e.silent) }
 
 // Samples returns n high-pass filtered input samples centred on the frame
-// analysed by the latest Analyze (n even, at most 2·mbe.FrameSamples).
-func (e *Encoder) Samples(n int) []float64 { return e.fe.Samples(n) }
+// analysed by the latest Analyze (n even, at most 2·mbe.FrameSamples).  With
+// Denoise they are the input before suppression.
+func (e *Encoder) Samples(n int) []float64 {
+	if e.ns == nil {
+		return e.fe.Samples(n)
+	}
+	c := rawLen - 1 - e.Delay()
+	return e.raw[c-n/2 : c+n/2]
+}
 
 // encodeFrame turns the analysed frame into quantizer values.
 func (e *Encoder) encodeFrame(PI, EI float64, silent bool) frame.Params {

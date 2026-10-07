@@ -41,7 +41,7 @@ func TestLatencyPercentile(t *testing.T) {
 
 // statusKeys are the status file's fields, as the bridge's monitoring reads them.
 var statusKeys = []string{
-	"client_states", "clients_seen", "decoded", "decoded72", "encode_us_max", "encode_us_p99",
+	"client_states", "clients_seen", "decoded", "decoded72", "denoise", "encode_us_max", "encode_us_p99",
 	"encoded", "ignored", "last_decode", "last_encode", "lookahead", "resets", "started",
 	"state", "tones", "updated", "version",
 }

@@ -15,9 +15,10 @@ import (
 // encodeDStar encodes PCM from r into D-STAR AMBE frames written to out:
 // *.dmb (dsd-fme container of 49-bit frames), *.bits (49 '0'/'1' per line) or
 // *.dv (9 bytes per frame: the 72-bit coded frame as D-STAR voice data).
-func encodeDStar(r *bufio.Reader, out string, lookahead int) error {
+func encodeDStar(r *bufio.Reader, out string, lookahead int, denoise bool) error {
 	cfg := dstar.DefaultConfig()
 	cfg.Lookahead = lookahead
+	cfg.Denoise = denoise
 	enc := dstar.NewEncoderConfig(cfg)
 	var frames []dstar.Bits
 	var pcm [dstar.FrameSamples]int16

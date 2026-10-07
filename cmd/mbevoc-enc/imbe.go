@@ -16,9 +16,10 @@ import (
 // *.imb (DSD container of 88-bit frames), *.bits (88 '0'/'1' per line) or
 // *.imbe144 (18 bytes per frame: the 144-bit coded frame, first bit in the MSB)
 // or *.pv (18 bytes per frame: the 142-bit EDACS ProVoice frame).
-func encodeIMBE(r *bufio.Reader, out string, lookahead int) error {
+func encodeIMBE(r *bufio.Reader, out string, lookahead int, denoise bool) error {
 	cfg := p25full.DefaultConfig()
 	cfg.Lookahead = lookahead
+	cfg.Denoise = denoise
 	enc := p25full.NewEncoderConfig(cfg)
 	var frames []p25full.Bits
 	var pcm [p25full.FrameSamples]int16

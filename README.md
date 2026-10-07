@@ -117,6 +117,7 @@ mbelib-neo's decoders are much faster, at 7–8 µs a frame against 28–32 µs 
 | `internal/halfrate` | the encoder and decoder engine shared by `p25half` and `dstar` |
 | `internal/mbe` | the MBE core shared by all codecs: TIA-102.BABA speech analysis (pitch estimation and tracking, refinement, V/UV, amplitudes), spectral enhancement, speech synthesis, and the windows w_I, w_R, w_S and pitch lowpass (generated from the spec's Annexes B–D and I) |
 | `internal/ecc` | Golay [23,12]/[24,12], the P25 [15,11] Hamming code, the PN sequence, and exact maximum-likelihood soft decoders |
+| `internal/denoise` | the optional noise suppressor in front of every encoder (`Denoise`) |
 | `internal/codebook` | quantizer and frame tables: AMBE+2 and D-STAR codebooks generated from mbelib (ISC licence, see `LICENSE.mbelib`), IMBE tables from TIA-102.BABA's annexes, D-STAR and ProVoice frame orders from DSD (ISC licence, see `LICENSE.dsd`) |
 | `internal/dsp` | FFT and small helpers |
 | `cmd/mbevoc-enc`, `cmd/mbevoc-dec`, `cmd/mbevoc-params` | file encoder and decoder for every codec, AMBE+2 parameter dump |
@@ -271,6 +272,28 @@ Soft-decision decoding was tested in simulation: random frames sent as BPSK thro
 * D-STAR: from 64 to 1 of 1,500;
 * P25 (σ = 0.55): from 114 to 39 of 400.
 
+## Noise suppression
+
+Neither the MD-380's encoder nor this one, without suppression, removes background noise: on noisy input, the coded speech scores about as low as the noisy input itself. The encoders can suppress steady noise (hiss, hum, fans) first: `Denoise` in each encoder's `Config`, `mbevoc-enc -denoise`, `ambe-server -denoise`. The output is ordinary frames, so every decoder benefits, including the DVSI decoders in radios. It costs 20 ms of delay and about 15 µs per frame.
+
+* **Method** (`internal/denoise`): published techniques.
+  * 30 ms Hann-windowed spectra every 10 ms.
+  * The noise spectrum is tracked by minima controlled recursive averaging (Cohen and Berdugo, 2002). A frame contributes at most a few times the tracked minimum, so speech onsets do not inflate the estimate.
+  * Each frequency is scaled by the Ephraim–Malah log-spectral amplitude estimator (1985), with the decision-directed SNR, down to a floor of −15 dB.
+  * **Depth follows the SNR.** Suppression is full when the background is within 20 dB of the speech, and fades out to none at 35 dB. Background that far down is inaudible after the vocoder, and removing it only costs speech quality. The background level is the quietest 10 ms in the last one to two seconds.
+  * The noise estimate is scaled down to 0.35. Suppressing less keeps speech intact, which counts for more once it has been through the vocoder. Steady noise between words is lowered by about 5 dB, and the voice activity detector then sends more of it as silence frames.
+  * Tone detection (`Tones`) still sees the input before suppression.
+* **Evaluation** (`research/tools/eval_noise.py`): white, pink or babble noise at 30, 20 and 10 dB SNR, added to recordings whose own background is at least 30 dB below the speech. Several corpus recordings have background only 13–24 dB down, and PESQ would count removing it against the suppressor. Settings were tuned on the dev recordings (8) and scored on the held-out ones (6), PESQ-NB / STOI against the clean recording.
+
+| held-out, through the MD-380 decoder | clean | white 30/20/10 dB | pink 30/20/10 dB | babble 30/20/10 dB | noisy mean |
+|---|---|---|---|---|---|
+| MD-380 encoder | 3.264 | 2.921 / 2.448 / 1.797 | 3.191 / 2.830 / 2.273 | 3.033 / 2.645 / 2.073 | 2.579 / 0.827 |
+| this encoder | 3.329 | 2.927 / 2.317 / 1.738 | 3.205 / 2.781 / 2.168 | 3.108 / 2.679 / 2.102 | 2.559 / 0.828 |
+| **this encoder, `Denoise`** | 3.319 | **3.083 / 2.761 / 2.140** | **3.248 / 3.058 / 2.620** | 3.100 / 2.687 / 2.060 | **2.751 / 0.839** |
+
+* **Results.** Over the nine noisy conditions, PESQ rises by 0.19 (0.17 above the MD-380's encoder). The gain is largest in white and pink noise at 20 and 10 dB SNR, 0.28–0.45. Clean speech changes by −0.01. Babble, which a noise tracker cannot follow, changes by −0.04 to +0.01. Through this library's decoder the noisy mean rises from 2.567 to 2.749. IMBE and D-STAR gain the same: 2.611 → 2.782 and 2.547 → 2.727 through their decoders, clean +0.01 and +0.02.
+* **Not measured:** real FM or radio noise, and listening tests. The held-out set was scored twice, before and after two fixes to the noise and level tracking that synthetic tests had shown up; no setting was chosen from held-out scores.
+
 ## Streaming and speed
 
 The API is frame-at-a-time. `Encoder.Encode` takes 160 samples (20 ms) and `Decoder.Decode` / `Decode72` take one frame. Each keeps the inter-frame state of one stream, so a bridge creates one encoder and one decoder per stream (or per timeslot). Instances are not safe for concurrent use, but separate instances run in parallel.
@@ -291,6 +314,7 @@ Speed per 20 ms frame, measured on one core of an Apple M4:
 * **IMBE encodes faster** because its quantizers are scalar; AMBE+2 and D-STAR search 65,536 PRBA codebook pairs a frame.
 * **Soft-decision decoding** adds about 5 µs per Golay word.
 * **Tone detection** (`Tones`) adds about 10 µs to every AMBE+2 frame; frames sent as tones skip the quantizer search and take about 50 µs.
+* **Noise suppression** (`Denoise`) adds about 15 µs per frame, and 20 ms to the encoder's delay.
 
 * **How measured:**
   * the same 47-second recording (2,346 frames), best of 7 runs of each command-line tool, CPU time including file I/O;
@@ -346,6 +370,7 @@ One UDP datagram carries one 20 ms frame, and requests are dispatched on datagra
 | `-lookahead` | `2` | encoder look-ahead: `2` for best quality (60 ms codec delay), `1` for 39 ms (−0.025 PESQ) |
 | `-silence` | `true` | send silence frames for non-speech input |
 | `-tones` | `false` | send tone frames for steady single tones and for DTMF, KNOX and call-progress tones, as md380-emu does (see Deviations) |
+| `-denoise` | `false` | suppress steady background noise before encoding (see Noise suppression); adds 20 ms of delay. Resets by `-reset-gap` keep the noise estimate, since the channel's noise outlasts a pause. |
 | `-fec` | `false` | reply to PCM with 9-byte FEC-coded 72-bit frames instead of 7-byte frames |
 | `-standard`, `-silence-gain` | off, `0.228` | decoder synthesis options (see `DecoderConfig`) |
 | `-reset-gap` | `0` (off) | start a fresh encoder when encoding resumes after a gap longer than this, and a fresh decoder when decoding does; each side on its own, and per client with `-state client`. `200ms` suits Analog_Bridge (see Deploying). |
@@ -376,6 +401,8 @@ Run the server with `-reset-gap 200ms` behind Analog_Bridge. During a transmissi
 * both directions would start the next over with the previous one's state.
 
 With `-reset-gap 200ms`, a request that follows more than 200 ms without one of its kind gets a fresh encoder (or decoder). The encoder and decoder are reset independently, so decoding in the middle of a transmission never resets the encoder. The end of an over still cannot be sent, since the client sends nothing after it; `-lookahead 1` shortens it to 40 ms.
+
+If the analog side is noisy (FM hiss on weak signals), add `-denoise`. Audio towards the radios then carries less noise, and the noise estimate carries over from one over to the next.
 
 **Docker:** it has to listen on all interfaces inside the container.
 
@@ -412,6 +439,7 @@ With `-stats-file /run/ambe-server/stats.json`, the server writes its status at 
   "lookahead": 2,
   "state": "shared",
   "tones": false,
+  "denoise": false,
   "resets": 2
 }
 ```
@@ -425,7 +453,7 @@ With `-stats-file /run/ambe-server/stats.json`, the server writes its status at 
 | `client_states` | per-client states held (0 in shared mode) |
 | `last_encode`, `last_decode` | Unix time of the last encode and decode request; `null` before the first |
 | `encode_us_max`, `encode_us_p99` | time to answer an encode request since start-up, in µs: the maximum, and the 99th percentile (exact to 1 µs, capped at 20,000) |
-| `lookahead`, `state`, `tones` | the `-lookahead`, `-state` and `-tones` settings |
+| `lookahead`, `state`, `tones`, `denoise` | the `-lookahead`, `-state`, `-tones` and `-denoise` settings |
 | `resets` | encoders and decoders replaced by `-reset-gap` |
 
 Request times are wall-clock times on the host, including CPU frequency changes. On an Apple M4, 500 frames sent back to back had a p99 of 292 µs. The same frames sent every 20 ms, as a bridge sends them, had a p99 of 1,896 µs, because the mostly idle CPU runs slower.
@@ -467,6 +495,7 @@ As shipped, DVSwitch's md380-emu crashed with a segmentation fault on its first 
 * `Decode72` against `Decode`, and the repeat-then-mute sequence;
 * tone frames: frequencies, levels and ID 255;
 * tone detection: single tones across the band and every Table 9 pair (frequency within 1 Hz or 0.5%, level within 0.3 dB), tolerance of noise, and rejection of voiced-speech-like harmonics, noise, three tones, excess twist, chirps, square waves and quiet input; 480 + 440 Hz never passing as a single tone; the index and AD mapping; a DTMF digit sequence; voice frames after a tone decoding exactly as encoded; the round trip through the decoder; and no tone frames on the speech corpus (skipped without it, or with `-short`);
+* noise suppression: exact reconstruction with no suppression, steady noise lowered, noisy speech brought closer to the clean, transparency when the noise is 45 dB down, `Flush` keeping the estimates, the exponential integral; the encoder's delay, `Reset` keeping the noise estimate (and otherwise equalling a new encoder), tone detection on the input before suppression, DTMF through suppression clean and in noise, and no tone frames on held-out speech with both options;
 * the silence-frame level, and decoder determinism;
 * `ambe-server`: the protocol replies, both state modes, idle expiry and eviction, and a real UDP round trip; `-reset-gap` (a resumed transmission matches a fresh encoder or decoder, each side is reset independently, per client, and only for a gap longer than the setting); the status file (fields, percentiles, atomic replacement, and updates while idle);
 * encoders running in parallel, which share read-only tables (`go test -race`);
@@ -503,6 +532,7 @@ This section records what was checked. It is not legal advice: check the positio
 | US 12,254,895 | detecting a speaker's face mask | 2042-11-13 | not implemented |
 | US 8,036,886 | estimating pulsed excitation | 2029-10-02 | not implemented |
 
+* **Noise suppression** (`Denoise`) uses methods published from 1984 to 2002 (Ephraim and Malah; Cohen and Berdugo). DVSI's claim to noise suppression in an MBE vocoder (US 7,970,606, claim 31) expired on 2025-09-08. The suppression methods themselves were not searched for patents.
 * **D-STAR, IMBE and ProVoice:** D-STAR's first codeword carries no voicing bits, so it does not match US 8,359,197's claims. All three formats predate that patent's 2003 priority date. The DVSI patents found from their era have expired: US 5,226,084, 6,199,037, 6,377,916, 6,912,495, 7,634,399, 7,970,606, 8,315,860 and 8,595,002.
 * **Not to be added while the patents are in force:**
   * soft decoding that chooses c0 by how well the other codewords then decode (US 12,462,814);

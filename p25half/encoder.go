@@ -50,6 +50,11 @@ type Config struct {
 	// frame, as the MD-380's encoder does.  See mbe.ToneDetector for the
 	// criteria.
 	Tones bool
+	// Denoise suppresses steady background noise (hiss, hum, fan noise)
+	// before encoding, by up to 15 dB when it is within 20 dB of the speech
+	// and less as the speech stands further above it (none beyond 35 dB).
+	// It adds 20 ms of delay.  See internal/denoise.
+	Denoise bool
 }
 
 // DefaultConfig returns the default encoder configuration.
@@ -67,7 +72,7 @@ func (c Config) engine() halfrate.Config {
 	return halfrate.Config{
 		Lookahead: c.Lookahead, RefineMinBin: c.RefineMinBin, MatchedAmplitudes: c.MatchedAmplitudes,
 		Silence: c.Silence, SilenceAttenuation: c.SilenceAttenuation, GainOffset: c.GainOffset,
-		VoicingScale: c.VoicingScale, WeightPower: c.WeightPower,
+		VoicingScale: c.VoicingScale, WeightPower: c.WeightPower, Denoise: c.Denoise,
 	}
 }
 
@@ -108,6 +113,15 @@ func NewEncoderConfig(cfg Config) *Encoder {
 		e.tones = mbe.NewToneDetector()
 	}
 	return e
+}
+
+// Reset returns the encoder to its initial state, for a new transmission.
+// With Config.Denoise the suppressor keeps its estimate of the background
+// noise, which outlasts a pause in the same channel; otherwise Reset is the
+// same as making a new encoder.
+func (e *Encoder) Reset() {
+	e.e.Reset()
+	e.Last = Analysis{}
 }
 
 // Delay is the encoder's algorithmic delay in samples: the frame returned by

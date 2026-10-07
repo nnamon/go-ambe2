@@ -31,6 +31,7 @@ research/setup.sh          # needs git, curl, make, cc/c++, go, python3 (pdftote
 | `tools/param_diff.py`, `lsd.py`, `level_by_voicing.py`, `dec_divergence.py`, `ltas.py` | diagnostics: parameter agreement, spectral distance, level per voicing class, long-term spectra |
 | `tools/probe_*.py`, `collect_phase.py`, `fit_*.py`, `shape_regress.py`, `amp_compare.py`, `remap_b1.py` | black-box probes of MD-380 decoder behaviour (see Findings); `probe_tone_detect.py` probes its encoder's tone detection |
 | `tools/tone_compare.py` | tone frames from the MD-380 encoder and `mbevoc-enc -tones` under the same 138 conditions |
+| `tools/eval_noise.py`, `tools/denoise/` | noisy-speech evaluation (white, pink and babble noise at 30/20/10 dB on the quiet recordings) of the MD-380 encoder, `mbevoc-enc` with and without `-denoise`, and the suppressor alone (`bin/denoise`, built by `make -C tools go`), through both decoders |
 | `tools/masked_pesq.py`, `env_error_profile.py`, `level_by_input.py`, `uv_texture.py`, `excess_by_index.py` | decoder comparisons on the same bitstreams: PESQ per frame class, envelope error, level and noise texture per class, excess error per codebook entry |
 | `tools/spec_tables.py` | extracts the codebook annexes A–G from the BABA-1 PDF and compares them with mbelib's tables (needs `papers/`) |
 | `tools/from_draft_layout.py` | converts `.amb`/`.bits` files from the draft standard's b3/b4 placement (OP25) to the MD-380's |
@@ -110,6 +111,8 @@ Each is reproducible with the scripts named.
   * still detects DTMF at 15 dB SNR in white noise (not 10), and a single tone at 20 dB (not 15);
   * sends tone frames for any tone it sees, even a 20 ms burst (two tone frames), and for a steady tone of N frames sends N + 1;
   * sent no tone frame in the 48,742 frames of the speech corpus (its `fw.amb` encodings).
+* **Noise (`eval_noise.py`):** the MD-380 encoder does not suppress background noise. On white, pink and babble noise its coded speech scores at or below the noisy input, as this encoder's does without `-denoise`.
+* **Corpus backgrounds:** half the recordings are not clean. Their own background is 13–24 dB below the speech (OSR_us_000_0010, 0011, 0012, 0013, 0014, 0015, 0016, 0017, 0018, 0019); the rest are 31–40 dB down. `eval_noise.py` adds noise only to the quiet ones.
 * **Voicing codewords (`probe_vuv.py`):**
   * codewords 1, 3, 11, 13, 15 and 17 decode as partially voiced;
   * 18–31 decode as unvoiced with redistributed band energy;

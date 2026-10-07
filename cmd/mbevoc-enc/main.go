@@ -43,6 +43,7 @@ func main() {
 	flag.Float64Var(&cfg.GainOffset, "gain", cfg.GainOffset, "log2 gain offset added to all amplitudes")
 	flag.Float64Var(&cfg.VoicingScale, "vscale", cfg.VoicingScale, "V/UV threshold scale (0 = 1)")
 	flag.Float64Var(&cfg.WeightPower, "wpow", cfg.WeightPower, "quantizer amplitude-weighting power (0 = unweighted)")
+	flag.BoolVar(&cfg.Denoise, "denoise", cfg.Denoise, "suppress steady background noise before encoding (adds 20 ms of delay)")
 	flag.BoolVar(&cfg.Tones, "tones", cfg.Tones, "AMBE+2: send tone frames for steady single tones and the dual tones of TIA-102.BABA-1 Table 9 (DTMF, KNOX, call progress)")
 	trace := flag.Bool("trace", false, "print per-frame analysis to stderr")
 	codec := flag.String("codec", "", "ambe2, imbe or dstar (default: by output file name)")
@@ -77,9 +78,9 @@ func main() {
 		var r *bufio.Reader
 		if f, r, err = openPCM(flag.Arg(0)); err == nil {
 			if *codec == "imbe" {
-				err = encodeIMBE(r, flag.Arg(1), cfg.Lookahead)
+				err = encodeIMBE(r, flag.Arg(1), cfg.Lookahead, cfg.Denoise)
 			} else {
-				err = encodeDStar(r, flag.Arg(1), cfg.Lookahead)
+				err = encodeDStar(r, flag.Arg(1), cfg.Lookahead, cfg.Denoise)
 			}
 			f.Close()
 		}

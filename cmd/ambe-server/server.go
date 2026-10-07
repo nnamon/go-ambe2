@@ -112,12 +112,14 @@ func (s *server) stale(last, now time.Time) bool {
 	return s.cfg.resetGap > 0 && !last.IsZero() && now.Sub(last) > s.cfg.resetGap
 }
 
-// encoderFor returns the client's encoder, replacing it with a fresh one
-// when the client has not encoded for longer than the reset gap.
+// encoderFor returns the client's encoder, reset when the client has not
+// encoded for longer than the reset gap.  A reset encoder is a fresh one,
+// except that its noise suppressor (-denoise) keeps its estimate of the
+// channel's background noise.
 func (s *server) encoderFor(client string, now time.Time) *p25half.Encoder {
 	c := s.codecFor(client, now)
 	if s.stale(c.lastEnc, now) {
-		c.enc = p25half.NewEncoderConfig(s.cfg.encoder)
+		c.enc.Reset()
 		s.stats.resets++
 	}
 	c.lastEnc, s.stats.lastEncode = now, now

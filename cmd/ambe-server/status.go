@@ -73,6 +73,7 @@ type status struct {
 	Lookahead    int      `json:"lookahead"`
 	State        string   `json:"state"`
 	Tones        bool     `json:"tones"`
+	Denoise      bool     `json:"denoise"`
 	Resets       uint64   `json:"resets"`
 }
 
@@ -105,6 +106,7 @@ func (s *server) status(now time.Time, version string) status {
 		Lookahead:    s.cfg.encoder.Lookahead,
 		State:        "shared",
 		Tones:        s.cfg.encoder.Tones,
+		Denoise:      s.cfg.encoder.Denoise,
 		Resets:       s.stats.resets,
 	}
 	if s.cfg.perClient {

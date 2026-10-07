@@ -20,7 +20,8 @@ go:
 	cd ../.. && go build -o research/bin/mbevoc-enc ./cmd/mbevoc-enc && \
 	  go build -o research/bin/mbevoc-dec ./cmd/mbevoc-dec && \
 	  go build -o research/bin/mbevoc-params ./cmd/mbevoc-params && \
-	  go build -o research/bin/ambe-server ./cmd/ambe-server
+	  go build -o research/bin/ambe-server ./cmd/ambe-server && \
+	  go build -o research/bin/denoise ./research/tools/denoise
 
 $(BIN)/mbelib-dec: mbelib-dec/main.c common_amb.h
 	mkdir -p $(BIN)
@@ -64,5 +65,5 @@ $(BIN)/fec-xcheck: fec_xcheck/main.c fec_xcheck/rW.inc
 
 clean:
 	rm -rf build fec_xcheck/*.inc $(BIN)/mbelib-dec $(BIN)/op25-enc $(BIN)/op25-imbe $(BIN)/neo-codec $(BIN)/fec-xcheck $(BIN)/hamming-check $(BIN)/hamming-check-neo \
-	  $(BIN)/mbevoc-enc $(BIN)/mbevoc-dec $(BIN)/mbevoc-params $(BIN)/ambe-server
+	  $(BIN)/mbevoc-enc $(BIN)/mbevoc-dec $(BIN)/mbevoc-params $(BIN)/ambe-server $(BIN)/denoise
 .PHONY: all go clean
