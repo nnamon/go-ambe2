@@ -8,7 +8,9 @@
 //
 // With -codec imbe (the default for *.imb and *.imbe144 inputs) it decodes
 // IMBE 7200x4400 (P25 Phase 1) frames: *.imb, *.bits (88 '0'/'1' per line) or
-// *.imbe144 (18-byte coded frames, with error correction).
+// *.imbe144 (18-byte coded frames, with error correction).  With -codec dstar
+// (the default for *.dmb and *.dv) it decodes D-STAR AMBE frames: *.dmb,
+// *.bits or *.dv (9-byte voice data, with error correction).
 package main
 
 import (
@@ -30,7 +32,7 @@ var (
 	standard = flag.Bool("standard", false, "use the TIA-102.BABA phase model exactly")
 	silGain  = flag.Float64("silence-gain", ambe.SilenceGain, "amplitude factor for silence frames (1 = standard)")
 	noEnh    = flag.Bool("no-enhance", false, "disable spectral amplitude enhancement")
-	codec    = flag.String("codec", "", "ambe2 or imbe (default: by input file name)")
+	codec    = flag.String("codec", "", "ambe2, imbe or dstar (default: by input file name)")
 	noSmooth = flag.Bool("no-smoothing", false, "IMBE: disable adaptive smoothing")
 	draft    = flag.Bool("draft-layout", false, "49-bit input places b3/b4 bits as the draft standard's Table 8 does (OP25's encoder)")
 )
@@ -38,7 +40,7 @@ var (
 func main() {
 	flag.Parse()
 	if flag.NArg() != 2 {
-		fmt.Fprintln(os.Stderr, "usage: ambe-dec [flags] in.amb|in.bits|in.ambe72|in.imb|in.imbe144 out.raw|out.wav")
+		fmt.Fprintln(os.Stderr, "usage: ambe-dec [flags] in.amb|in.bits|in.ambe72|in.imb|in.imbe144|in.dmb|in.dv out.raw|out.wav")
 		os.Exit(2)
 	}
 	if err := run(flag.Arg(0), flag.Arg(1)); err != nil {
@@ -57,12 +59,16 @@ func run(in, out string) error {
 		*codec = "ambe2"
 		if strings.HasSuffix(in, ".imb") || strings.HasSuffix(in, ".imbe144") {
 			*codec = "imbe"
+		} else if strings.HasSuffix(in, ".dmb") || strings.HasSuffix(in, ".dv") {
+			*codec = "dstar"
 		}
 	}
 	var pcm []int16
 	switch *codec {
 	case "imbe":
 		pcm, err = decodeIMBE(f, in)
+	case "dstar":
+		pcm, err = decodeDStar(f, in)
 	case "ambe2":
 		pcm, err = decodeAMBE2(f, in)
 	default:

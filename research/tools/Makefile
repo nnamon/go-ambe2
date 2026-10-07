@@ -4,13 +4,14 @@ REFS   ?= ../refs
 MBELIB := $(REFS)/mbelib
 OP25   := $(REFS)/op25/op25/gr-op25_repeater/lib
 DSDFME := $(REFS)/dsd-fme
+NEO    := $(REFS)/mbelib-neo
 BIN    := ../bin
 CFLAGS   ?= -O2 -g -w
 CXXFLAGS ?= -O2 -g -w -std=c++17
 MBELIB_SRC := $(MBELIB)/mbelib.c $(MBELIB)/ambe3600x2450.c $(MBELIB)/ambe3600x2400.c \
               $(MBELIB)/imbe7200x4400.c $(MBELIB)/imbe7100x4400.c $(MBELIB)/ecc.c
 
-all: go $(BIN)/mbelib-dec $(BIN)/op25-enc $(BIN)/op25-imbe $(BIN)/fec-xcheck
+all: go $(BIN)/mbelib-dec $(BIN)/op25-enc $(BIN)/op25-imbe $(BIN)/neo-codec $(BIN)/fec-xcheck
 
 # Go CLIs of this module (always rebuilt; go build is incremental).
 go:
@@ -36,6 +37,15 @@ $(BIN)/op25-imbe: op25-imbe/main.cc
 	mkdir -p $(BIN)
 	$(CXX) $(CXXFLAGS) -I$(OP25) -o $@ op25-imbe/main.cc $(wildcard $(OP25)/imbe_vocoder/*.cc) -lm
 
+# mbelib-neo (GPL), compiled from its sources without CMake; research use only.
+NEO_SRC := $(wildcard $(NEO)/src/core/*.c $(NEO)/src/ambe/*.c $(NEO)/src/imbe/*.c $(NEO)/src/ecc/*.c) \
+           $(NEO)/src/external/pffft/pffft.c $(NEO)/src/external/pffft/fftpack.c
+$(BIN)/neo-codec: neo-codec/main.c
+	mkdir -p $(BIN) build/neo/mbelib-neo
+	sed 's/@PROJECT_VERSION@/research/' $(NEO)/include/mbelib-neo/version.h.in > build/neo/mbelib-neo/version.h
+	$(CC) $(CFLAGS) -DMBE_STATIC=1 -I$(NEO)/include -Ibuild/neo -I$(NEO)/src/internal -I$(NEO)/src/external/pffft \
+	  -o $@ neo-codec/main.c $(NEO_SRC) -lm
+
 fec_xcheck/rW.inc: fec_xcheck/gen_inc.py
 	python3 fec_xcheck/gen_inc.py $(DSDFME)/include/dmr_const.h fec_xcheck
 
@@ -44,6 +54,6 @@ $(BIN)/fec-xcheck: fec_xcheck/main.c fec_xcheck/rW.inc
 	$(CC) $(CFLAGS) -I$(MBELIB) -Ifec_xcheck -o $@ fec_xcheck/main.c $(MBELIB_SRC) -lm
 
 clean:
-	rm -rf build fec_xcheck/*.inc $(BIN)/mbelib-dec $(BIN)/op25-enc $(BIN)/op25-imbe $(BIN)/fec-xcheck \
+	rm -rf build fec_xcheck/*.inc $(BIN)/mbelib-dec $(BIN)/op25-enc $(BIN)/op25-imbe $(BIN)/neo-codec $(BIN)/fec-xcheck \
 	  $(BIN)/ambe-enc $(BIN)/ambe-dec $(BIN)/ambe-params $(BIN)/ambe-server
 .PHONY: all go clean

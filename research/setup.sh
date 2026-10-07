@@ -17,6 +17,7 @@ clone https://github.com/boatbod/op25.git op25
 clone https://github.com/lwvmobile/dsd-fme.git dsd-fme
 clone https://github.com/g4klx/MMDVMHost.git MMDVMHost
 clone https://github.com/DVSwitch/md380tools.git dvswitch-md380tools
+clone https://github.com/arancormonk/mbelib-neo.git mbelib-neo   # GPL; research comparisons only
 
 echo "== MD-380 firmware D002.032 (black-box reference; md380tools checks its SHA-256)"
 make -s -C refs/md380tools/firmware -f Makefile_orig unwrapped/D002.032.img
@@ -28,6 +29,8 @@ fetch "https://archive.org/download/TIA-102_Series_Documents/TIA-102.BABA_Projec
 fetch "https://archive.org/download/TIA-102_Series_Documents/TIA-102.BABA-1_P25_Half_Rate_Vocoder_Addendum.pdf" papers/TIA-102.BABA-1_halfrate_draft.pdf ||
   fetch "https://www.qsl.net/kb9mwr/projects/dv/codec/TIA-102.BABA-1%20%20P25%20Half%20Rate%20Vocoder%20Addendum%20.pdf" papers/TIA-102.BABA-1_halfrate_draft.pdf ||
   echo "warning: could not fetch TIA-102.BABA-1"
+fetch "https://www.jarl.com/d-star/shogen.pdf" papers/dstar_shogen.pdf ||
+  echo "warning: could not fetch the JARL D-STAR system description"
 if command -v pdftotext >/dev/null 2>&1; then
   [ -s papers/BABA.txt ] || [ ! -s papers/TIA-102.BABA_IMBE.pdf ] || pdftotext -layout papers/TIA-102.BABA_IMBE.pdf papers/BABA.txt
   [ -s papers/BABA-1.txt ] || [ ! -s papers/TIA-102.BABA-1_halfrate_draft.pdf ] || pdftotext -layout papers/TIA-102.BABA-1_halfrate_draft.pdf papers/BABA-1.txt
@@ -61,6 +64,14 @@ for n in OSR_us_000_0011_8k OSR_us_000_0032_8k OSR_us_000_0057_8k; do
     [ -s $o.$e.mbelib.params ] || bin/mbelib-dec -imbe -p $o.$e.imb /dev/null 2> $o.$e.mbelib.params
   done
 done
-[ -s testdata/imbe/random.imb ] || .venv/bin/python tools/gen_random_imb.py testdata/imbe/random.imb 2000 7
+[ -s testdata/imbe/random.imb ] || .venv/bin/python tools/gen_random_frames.py imb testdata/imbe/random.imb 2000 7
 [ -s testdata/imbe/random.op25cw.txt ] || bin/op25-imbe cw testdata/imbe/random.imb testdata/imbe/random.op25cw.txt 2>/dev/null
+mkdir -p testdata/dstar
+[ -s testdata/dstar/frames.dmb ] || .venv/bin/python tools/gen_random_frames.py dmb testdata/dstar/frames.dmb 2000 11
+[ -s testdata/dstar/frames.neo.dv ] || bin/neo-codec dstar-dv testdata/dstar/frames.dmb testdata/dstar/frames.neo.dv 2>/dev/null
+for n in OSR_us_000_0011_8k OSR_us_000_0032_8k OSR_us_000_0057_8k; do
+  o=testdata/dstar/$n.godstar
+  [ -s $o.dmb ] || bin/ambe-enc -codec dstar testdata/heldout/$n/ref.raw $o.dmb 2>/dev/null
+  [ -s $o.mbelib.params ] || bin/mbelib-dec -dstar -p $o.dmb /dev/null 2> $o.mbelib.params
+done
 echo "done"

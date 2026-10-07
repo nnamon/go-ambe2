@@ -1,6 +1,8 @@
 #!/usr/bin/env python3
 """Generate ../internal/codebook/dstar.go, the D-STAR AMBE 3600x2400
-quantizer tables, from upstream mbelib's ambe3600x2400_const.h (ISC).
+quantizer tables, from upstream mbelib's ambe3600x2400_const.h (ISC), and
+the 72-bit frame interleave from DSD's dstar_const.h (dW, dX; ISC), which
+mbelib-neo's dstar_frame.c reproduces exactly (checked when present).
 
 mbelib reads b8 as three bits shifted left by one into its 16-row HOC table
 (the low bit "forced to 0"), so only the even rows are reachable; they are
@@ -26,6 +28,21 @@ A = mbelib_tables.load()
 assert np.array_equal(T["AmbePlusLmprbl"], A["AmbeLmprbl"]), "D-STAR block lengths differ from AMBE+2"
 L = T["AmbePlusLtable"].astype(int)
 assert all(L[120:] == 56), "Ltable padding changed"
+
+def ints(src, name):
+    i = src.index(name)
+    body = re.sub(r'//[^\n]*', '', src[src.index('{', i) + 1:src.index('};', i)])
+    return [int(x) for x in re.findall(r'-?\d+', body)]
+
+dsd = open(os.path.join(ROOT, "..", "refs", "dsd-fme", "include", "dstar_const.h")).read()
+dW, dX = ints(dsd, "const int dW[72] ="), ints(dsd, "const int dX[72] =")
+lens = [24, 23, 11, 14]
+assert sorted(zip(dW, dX)) == [(v, b) for v in range(4) for b in range(lens[v])], "dW/dX not a permutation"
+neo = os.path.join(ROOT, "..", "refs", "mbelib-neo", "src", "ambe", "dstar_frame.c")
+if os.path.exists(neo):
+    n = open(neo).read()
+    assert (ints(n, "dstar_dW[72]"), ints(n, "dstar_dX[72]")) == (dW, dX), "mbelib-neo's interleave differs from DSD's"
+    print("interleave: DSD's dW/dX equal mbelib-neo's")
 
 def flt(v): return repr(float(v))
 
@@ -68,6 +85,12 @@ parts = [
     rows("DStarHOC3", T["AmbePlusHOCb7"], "float64", "DStarHOC3[b7] holds C3,3..C3,6."),
     "",
     rows("DStarHOC4", T["AmbePlusHOCb8"][0::2], "float64", "DStarHOC4[b8] holds C4,3..C4,6 (the even rows of mbelib's table)."),
+    "",
+    "// DStarInterleave[i] gives the code vector (c0..c3) and bit (0 = LSB) carried by",
+    "// bit i of the 72-bit D-STAR voice frame (DSD's dW, dX).",
+    "var DStarInterleave = [72][2]int{",
+    "\n".join("\t{%d, %d}," % (w, x) for w, x in zip(dW, dX)),
+    "}",
     "",
 ]
 dst = os.path.join(ROOT, "..", "..", "internal", "codebook", "dstar.go")

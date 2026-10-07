@@ -44,11 +44,13 @@ var AMBE2 = newCodebook("AMBE+2 3600x2450", codebook.W0[:], codebook.L[:], codeb
 // DStar is the D-STAR AMBE 3600x2400 codebook.  Its tables and field layout
 // are those of mbelib, which reverse-engineered them; the fundamental for
 // voice code b0 is 2^(−4.311767578125 − 0.021336·(b0 + 0.5)) cycles/sample.
+// Frame codes are classified as for AMBE+2 (KindOf): the D-STAR "null AMBE"
+// frame that gateways send for silence has b0 = 124.
 var DStar = newCodebook("D-STAR AMBE 3600x2400", dstarF0(), codebook.DStarL[:], codebook.DStarVUV[:],
 	[]uint16{0, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15},
 	codebook.DStarDg[:], codebook.DStarPRBA24[:], codebook.DStarPRBA58[:],
 	[4][][4]float64{codebook.DStarHOC1[:], codebook.DStarHOC2[:], codebook.DStarHOC3[:], codebook.DStarHOC4[:]},
-	dstarKind)
+	KindOf)
 
 func dstarF0() []float64 {
 	f := make([]float64, 120)
@@ -56,19 +58,6 @@ func dstarF0() []float64 {
 		f[b0] = math.Exp2(-4.311767578125 - 0.021336*(float64(b0)+0.5))
 	}
 	return f
-}
-
-// dstarKind classifies a D-STAR b0: 0..119 voice, 126..127 tone (as AMBE+2);
-// the remaining codes have no known meaning and are treated as erasures.
-func dstarKind(b0 uint16) Kind {
-	switch {
-	case b0 < 120:
-		return Voice
-	case b0 >= 126:
-		return Tone
-	default:
-		return Erasure
-	}
 }
 
 func newCodebook(name string, f0 []float64, nharm []int, vuv [][8]uint8, cand []uint16, dg []float64,

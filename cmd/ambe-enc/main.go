@@ -10,6 +10,8 @@
 // With -codec imbe (the default for *.imb and *.imbe144 outputs) it encodes
 // IMBE 7200x4400 (P25 Phase 1) frames instead: *.imb (DSD container of 88-bit
 // frames), *.bits (88 '0'/'1' per line) or *.imbe144 (18-byte coded frames).
+// With -codec dstar (the default for *.dmb and *.dv) it encodes D-STAR AMBE
+// frames: *.dmb (dsd-fme container), *.bits or *.dv (9-byte voice data).
 //
 // -draft-layout writes b3 and b4 as the TIA-102.BABA-1 draft's Table 8 places
 // them, for decoders that follow it (mbelib, DSD); see package frame.
@@ -41,7 +43,7 @@ func main() {
 	flag.Float64Var(&cfg.VoicingScale, "vscale", cfg.VoicingScale, "V/UV threshold scale (0 = 1)")
 	flag.Float64Var(&cfg.WeightPower, "wpow", cfg.WeightPower, "quantizer amplitude-weighting power (0 = unweighted)")
 	trace := flag.Bool("trace", false, "print per-frame analysis to stderr")
-	codec := flag.String("codec", "", "ambe2 or imbe (default: by output file name)")
+	codec := flag.String("codec", "", "ambe2, imbe or dstar (default: by output file name)")
 	draft := flag.Bool("draft-layout", false, "place b3/b4 bits as the draft standard's Table 8 does (for mbelib/DSD), not as DVSI radios do")
 	flag.Usage = func() {
 		fmt.Fprintf(os.Stderr, "usage: ambe-enc [flags] in.raw|in.wav out.amb|out.bits|out.ambe72\n")
@@ -56,14 +58,25 @@ func main() {
 		*codec = "ambe2"
 		if o := flag.Arg(1); strings.HasSuffix(o, ".imb") || strings.HasSuffix(o, ".imbe144") {
 			*codec = "imbe"
+		} else if strings.HasSuffix(o, ".dmb") || strings.HasSuffix(o, ".dv") {
+			*codec = "dstar"
 		}
 	}
 	var err error
 	switch *codec {
 	case "ambe2":
 		err = run(cfg, flag.Arg(0), flag.Arg(1), *trace, *draft)
-	case "imbe":
-		err = runIMBE(flag.Arg(0), flag.Arg(1), cfg.Lookahead)
+	case "imbe", "dstar":
+		var f *os.File
+		var r *bufio.Reader
+		if f, r, err = openPCM(flag.Arg(0)); err == nil {
+			if *codec == "imbe" {
+				err = encodeIMBE(r, flag.Arg(1), cfg.Lookahead)
+			} else {
+				err = encodeDStar(r, flag.Arg(1), cfg.Lookahead)
+			}
+			f.Close()
+		}
 	default:
 		err = fmt.Errorf("unknown codec %q", *codec)
 	}
@@ -86,15 +99,6 @@ func openPCM(in string) (*os.File, *bufio.Reader, error) {
 		}
 	}
 	return f, r, nil
-}
-
-func runIMBE(in, out string, lookahead int) error {
-	f, r, err := openPCM(in)
-	if err != nil {
-		return err
-	}
-	defer f.Close()
-	return encodeIMBE(r, out, lookahead)
 }
 
 func run(cfg ambe.Config, in, out string, trace, draft bool) error {

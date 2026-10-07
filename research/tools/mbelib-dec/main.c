@@ -1,5 +1,6 @@
-/* mbelib-dec: decode AMBE+2 3600x2450 49-bit frames (.amb or .bits), or with -imbe
-   IMBE 7200x4400 88-bit frames (DSD .imb), to 8 kHz s16le PCM with szechyjs/mbelib.
+/* mbelib-dec: decode AMBE+2 3600x2450 49-bit frames (.amb or .bits), with -imbe
+   IMBE 7200x4400 88-bit frames (DSD .imb), or with -dstar D-STAR AMBE frames
+   (dsd-fme .dmb), to 8 kHz s16le PCM with szechyjs/mbelib.
    Optional -p prints the decoded model parameters per frame to stderr:
    idx w0 L gamma Vl-string log2M[1..L]. */
 #include <stdlib.h>
@@ -7,11 +8,12 @@
 #include "../common_amb.h"
 
 int main(int argc, char **argv) {
-  int params = 0, uvq = 3, imbe = 0;
+  int params = 0, uvq = 3, imbe = 0, dstar = 0;
   int a = 1;
   for (; a < argc && argv[a][0] == '-'; a++) {
     if (!strcmp(argv[a], "-p")) params = 1;
     else if (!strcmp(argv[a], "-imbe")) imbe = 1;
+    else if (!strcmp(argv[a], "-dstar")) dstar = 1;
     else if (!strcmp(argv[a], "-q") && a + 1 < argc) uvq = atoi(argv[++a]);
     else { fprintf(stderr, "unknown flag %s\n", argv[a]); return 2; }
   }
@@ -23,9 +25,9 @@ int main(int argc, char **argv) {
   FILE *in = fopen(inpath, "rb"), *out = fopen(outpath, "wb");
   if (!in || !out) { perror("open"); return 1; }
   int asbits = has_suffix(inpath, ".bits");
-  if (imbe) {
+  if (imbe || dstar) {
     char magic[4];
-    if (fread(magic, 1, 4, in) != 4 || memcmp(magic, ".imb", 4)) { fprintf(stderr, "bad .imb magic\n"); return 1; }
+    if (fread(magic, 1, 4, in) != 4 || memcmp(magic, imbe ? ".imb" : ".dmb", 4)) { fprintf(stderr, "bad magic\n"); return 1; }
   } else if (!amb_open_in(in, asbits)) { fprintf(stderr, "bad .amb magic\n"); return 1; }
 
   mbe_parms cur, prev, prev_enh;
@@ -42,8 +44,9 @@ int main(int argc, char **argv) {
       for (int i = 0; i < 88; i++) imbe_d[i] = (rec[1 + i / 8] >> (7 - i % 8)) & 1;
       mbe_processImbe4400Data(pcm, &errs, &errs2, err_str, imbe_d, &cur, &prev, &prev_enh, uvq);
     } else {
-      if (!amb_read_frame(in, asbits, ambe_d)) break;
-      mbe_processAmbe2450Data(pcm, &errs, &errs2, err_str, ambe_d, &cur, &prev, &prev_enh, uvq);
+      if (!amb_read_frame(in, dstar ? 0 : asbits, ambe_d)) break;
+      if (dstar) mbe_processAmbe2400Data(pcm, &errs, &errs2, err_str, ambe_d, &cur, &prev, &prev_enh, uvq);
+      else mbe_processAmbe2450Data(pcm, &errs, &errs2, err_str, ambe_d, &cur, &prev, &prev_enh, uvq);
     }
     if (params) {
       /* After processing, prev holds this frame's (unenhanced) parameters. */
