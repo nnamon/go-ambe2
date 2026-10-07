@@ -10,12 +10,16 @@
                                           to the 88-bit P25 order (.imb)
      neo-codec p25-params in.imbe144 out.imb  P25 IMBE 144-bit frames -> error correction
                                           and demodulation to the 88 bits (.imb)
+   The decoders write mbelib-neo's float output times $NEO_GAIN (default 1),
+   rounded and clipped to int16; its own int16 output applies a gain of 7 with
+   soft clipping at 95% of full scale, which clips this corpus's loud passages.
    .pv: 18 bytes per frame, the 142 frame bits MSB-first in DSD's order (pW, pX).
    .imbe144: 18 bytes per frame, the 144 frame bits MSB-first (TIA-102.BABA Annex
    H order; DSD's iW..iZ).
    .dmb/.amb: 4-byte header, then per frame 1 status byte, bits 0..47 MSB-first
    in 6 bytes, bit 48 in the LSB of a 7th.  .imb: header, then 1 status byte and
    the 88 bits MSB-first in 11 bytes. */
+#include <math.h>
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
@@ -109,6 +113,7 @@ int main(int argc, char **argv) {
     char magic[4];
     if (fread(magic, 1, 4, in) != 4) { fprintf(stderr, "short file\n"); return 1; }
     mbe_process_result res;
+    float fpcm[160], gain = getenv("NEO_GAIN") ? (float)atof(getenv("NEO_GAIN")) : 1.0f;
     for (;;) {
       mbe_initProcessResult(&res);
       if (!strcmp(mode, "imbe-dec")) {
@@ -116,12 +121,16 @@ int main(int argc, char **argv) {
         char d[88];
         if (fread(rec, 1, 12, in) != 12) break;
         for (int i = 0; i < 88; i++) d[i] = (rec[1 + i / 8] >> (7 - i % 8)) & 1;
-        mbe_processImbe4400Data(pcm, &res, d, &cur, &prev, &enh);
+        mbe_processImbe4400Dataf(fpcm, &res, d, &cur, &prev, &enh);
       } else {
         char d[49];
         if (!read49(in, d)) break;
-        if (!strcmp(mode, "dstar-dec")) mbe_processAmbe2400Data(pcm, &res, d, &cur, &prev, &enh);
-        else mbe_processAmbe2450Data(pcm, &res, d, &cur, &prev, &enh);
+        if (!strcmp(mode, "dstar-dec")) mbe_processAmbe2400Dataf(fpcm, &res, d, &cur, &prev, &enh);
+        else mbe_processAmbe2450Dataf(fpcm, &res, d, &cur, &prev, &enh);
+      }
+      for (int i = 0; i < 160; i++) {
+        float v = fpcm[i] * gain;
+        pcm[i] = v > 32767 ? 32767 : v < -32768 ? -32768 : (short)lrintf(v);
       }
       fwrite(pcm, 2, 160, out);
       frames++;

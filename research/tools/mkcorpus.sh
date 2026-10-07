@@ -24,7 +24,7 @@ PYEOF
   [ -f "$d/op25.amb" ] || bin/op25-enc "$d/ref.raw" "$d/op25.amb" 2>/dev/null
   for e in fw op25; do
     [ -f "$d/$e.fw.raw" ] || $PY oracle/unicorn/md380_uc.py dec "$d/$e.amb" "$d/$e.fw.raw" 2>/dev/null
-    [ -f "$d/$e.mbelib.raw" ] || bin/mbelib-dec "$d/$e.amb" "$d/$e.mbelib.raw" 2>/dev/null
+    [ -f "$d/$e.mbelib.raw" ] || bin/mbelib-dec -g 1 "$d/$e.amb" "$d/$e.mbelib.raw" 2>/dev/null
     [ -f "$d/$e.mbelib.params" ] || bin/mbelib-dec -p "$d/$e.amb" /dev/null 2> "$d/$e.mbelib.params"
   done
   echo "$d: $(( $(wc -c < "$d/ref.raw") / 320 )) frames"

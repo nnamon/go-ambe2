@@ -17,5 +17,5 @@ ambe-oracle enc ref.raw fw.amb
 op25-enc ref.raw op25.amb
 for e in fw op25; do
   ambe-oracle dec $e.amb $e.fw.raw
-  mbelib-dec $e.amb $e.mbelib.raw
+  mbelib-dec -g 1 $e.amb $e.mbelib.raw
 done

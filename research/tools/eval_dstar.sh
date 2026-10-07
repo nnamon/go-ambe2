@@ -10,7 +10,7 @@ for d in ${SET:-testdata/heldout}/*/; do
   [ -f "$d/neodstar.dmb" ] || bin/neo-codec dstar-enc "$d/ref.raw" "$d/neodstar.dmb" 2>/dev/null
   for e in $tag neodstar; do
     bin/ambe-dec -codec dstar ${DECFLAGS:-} "$d/$e.dmb" "$d/$e.godec.raw" 2>/dev/null
-    [ -f "$d/$e.mbelib.raw" ] || bin/mbelib-dec -dstar "$d/$e.dmb" "$d/$e.mbelib.raw" 2>/dev/null
+    [ -f "$d/$e.mbelib.raw" ] || bin/mbelib-dec -g 1 -dstar "$d/$e.dmb" "$d/$e.mbelib.raw" 2>/dev/null
     [ -f "$d/$e.neo.raw" ] || bin/neo-codec dstar-dec "$d/$e.dmb" "$d/$e.neo.raw" 2>/dev/null
   done
 done

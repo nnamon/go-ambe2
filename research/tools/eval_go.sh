@@ -12,6 +12,6 @@ for d in ${SET:-testdata/matrix}/*/; do
   d=${d%/}
   bin/ambe-enc "$@" "$d/ref.raw" "$d/$tag.amb" 2>/dev/null
   $PY oracle/unicorn/md380_uc.py dec "$d/$tag.amb" "$d/$tag.fw.raw" 2>/dev/null
-  bin/mbelib-dec "$d/$tag.amb" "$d/$tag.mbelib.raw" 2>/dev/null
+  bin/mbelib-dec -g 1 "$d/$tag.amb" "$d/$tag.mbelib.raw" 2>/dev/null
 done
 $PY tools/score.py "$tag"

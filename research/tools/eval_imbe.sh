@@ -10,7 +10,7 @@ for d in ${SET:-testdata/heldout}/*/; do
   [ -f "$d/op25imbe.imb" ] || bin/op25-imbe enc "$d/ref.raw" "$d/op25imbe.imb" 2>/dev/null
   for e in $tag op25imbe; do
     bin/ambe-dec -codec imbe ${DECFLAGS:-} "$d/$e.imb" "$d/$e.godec.raw" 2>/dev/null
-    [ -f "$d/$e.mbelib.raw" ] || bin/mbelib-dec -imbe "$d/$e.imb" "$d/$e.mbelib.raw" 2>/dev/null
+    [ -f "$d/$e.mbelib.raw" ] || bin/mbelib-dec -g 1 -imbe "$d/$e.imb" "$d/$e.mbelib.raw" 2>/dev/null
     [ -f "$d/$e.op25.raw" ] || bin/op25-imbe dec "$d/$e.imb" "$d/$e.op25.raw" 2>/dev/null
   done
 done
