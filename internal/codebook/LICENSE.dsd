@@ -1,10 +1,11 @@
-The AMBE+2 and D-STAR quantizer codebooks (tables.go, dstar.go) and the
-ProVoice Hamming generator (provoice.go) in this directory are derived from
-mbelib (https://github.com/szechyjs/mbelib), distributed under the following
-license:
+The D-STAR frame interleave (dstar.go, DStarInterleave) and the EDACS ProVoice
+frame order (provoice.go, ProVoiceOrder) in this directory are derived from DSD
+(https://github.com/szechyjs/dsd; dstar_const.h and provoice_const.h, as
+carried in https://github.com/lwvmobile/dsd-fme), distributed under the
+following license:
 
-Copyright (C) 2010 mbelib Author
-GPG Key ID: 0xEA5EFE2C (9E7A 5527 9CDC EBF7 BF1B  D772 4F98 E863 EA5E FE2C)
+Copyright (C) 2010 DSD Author
+GPG Key ID: 0x3F1D7FD0 (74EF 430D F7F2 0A48 FCE6  F630 FAA2 635D 3F1D 7FD0)
 
 Permission to use, copy, modify, and/or distribute this software for any
 purpose with or without fee is hereby granted, provided that the above

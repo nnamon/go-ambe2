@@ -1,10 +1,10 @@
-package ambe
+package p25half
 
 import (
 	"math"
 
-	"github.com/nnamon/go-ambe2/frame"
-	"github.com/nnamon/go-ambe2/internal/mbe"
+	"github.com/nnamon/mbevoc/frame"
+	"github.com/nnamon/mbevoc/internal/mbe"
 )
 
 // toneTable gives, for tone indices 128..163, the MBE representation of

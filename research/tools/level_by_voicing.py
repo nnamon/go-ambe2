@@ -13,7 +13,7 @@ for tag in sys.argv[1:]:
         lag = estimate_delay(ref, out)
         out = out[lag:]
         # classify input frames by the firmware encoder's decisions (fw.amb lags input by 2 frames)
-        lines = subprocess.run(["bin/ambe-params", d + "fw.amb"], capture_output=True, text=True).stdout.splitlines()
+        lines = subprocess.run(["bin/mbevoc-params", d + "fw.amb"], capture_output=True, text=True).stdout.splitlines()
         for k, line in enumerate(lines[2:]):
             t = line.split()
             if t[1] == "S":

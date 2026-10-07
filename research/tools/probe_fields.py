@@ -26,7 +26,7 @@ def run(p, nfr=40):
     fr = bits(p); v = Md380Vocoder()
     pcm = np.concatenate([np.array(v.decode_frame(fr), float) for _ in range(nfr)])
     open(SP+'/f.bits', 'w').write('\n'.join(''.join(map(str, fr)) for _ in range(nfr))+'\n')
-    last = subprocess.run(['bin/ambe-params', SP+'/f.bits'], capture_output=True, text=True).stdout.splitlines()
+    last = subprocess.run(['bin/mbevoc-params', SP+'/f.bits'], capture_output=True, text=True).stdout.splitlines()
     f0 = T['AmbeW0table'][p[0]]; L = int(T['AmbeLtable'][p[0]])
     start = 160*(nfr-6); n = int(round(6/f0)); t = np.arange(n)+start; seg = pcm[start:start+n]
     A = np.column_stack([np.cos(2*np.pi*f0*l*t) for l in range(1, L+1)]+[np.sin(2*np.pi*f0*l*t) for l in range(1, L+1)])

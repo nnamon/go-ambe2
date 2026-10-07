@@ -3,7 +3,7 @@ package mbe
 import (
 	"math"
 
-	"github.com/nnamon/go-ambe2/internal/dsp"
+	"github.com/nnamon/mbevoc/internal/dsp"
 )
 
 const (

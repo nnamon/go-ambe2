@@ -3,7 +3,7 @@ package quant
 import (
 	"math"
 
-	"github.com/nnamon/go-ambe2/frame"
+	"github.com/nnamon/mbevoc/frame"
 )
 
 // Target is the analysis result the quantizer encodes for one frame.

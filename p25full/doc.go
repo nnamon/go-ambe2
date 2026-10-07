@@ -1,4 +1,4 @@
-// Package imbe implements the IMBE 7200x4400 full-rate vocoder of P25
+// Package p25full implements the IMBE 7200x4400 full-rate vocoder of P25
 // Phase 1 (TIA-102.BABA), written from the specification:
 //
 //   - Encoder: the speech analysis of chapter 5 (shared with this module's
@@ -14,7 +14,7 @@
 //
 // The quantizer tables come from the specification's annexes (see
 // internal/codebook/imbe.go).
-package imbe
+package p25full
 
 // FrameSamples is the number of 8 kHz samples per 20 ms frame.
 const FrameSamples = 160

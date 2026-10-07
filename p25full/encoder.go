@@ -1,9 +1,9 @@
-package imbe
+package p25full
 
 import (
 	"math"
 
-	"github.com/nnamon/go-ambe2/internal/mbe"
+	"github.com/nnamon/mbevoc/internal/mbe"
 )
 
 // Config tunes the encoder; DefaultConfig gives the standard behaviour.

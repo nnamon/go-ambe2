@@ -4,7 +4,7 @@ import (
 	"math/rand"
 	"testing"
 
-	"github.com/nnamon/go-ambe2/frame"
+	"github.com/nnamon/mbevoc/frame"
 )
 
 // TestSoftDecodeAWGN sends random frames as BPSK through Gaussian noise and

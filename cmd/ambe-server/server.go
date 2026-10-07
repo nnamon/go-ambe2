@@ -5,16 +5,16 @@ import (
 	"sort"
 	"time"
 
-	ambe "github.com/nnamon/go-ambe2"
-	"github.com/nnamon/go-ambe2/fec"
-	"github.com/nnamon/go-ambe2/frame"
+	"github.com/nnamon/mbevoc/fec"
+	"github.com/nnamon/mbevoc/frame"
+	"github.com/nnamon/mbevoc/p25half"
 )
 
 // Datagram sizes of the md380-emu UDP protocol (and this server's extension).
 const (
-	pcmBytes   = 2 * ambe.FrameSamples // 160 little-endian int16 samples
-	ambe49Size = 7                     // 49-bit frame, frame.Pack7 layout
-	ambe72Size = 9                     // 72-bit on-air frame (extension)
+	pcmBytes   = 2 * p25half.FrameSamples // 160 little-endian int16 samples
+	ambe49Size = 7                        // 49-bit frame, frame.Pack7 layout
+	ambe72Size = 9                        // 72-bit on-air frame (extension)
 )
 
 // config holds the protocol-level options.
@@ -23,14 +23,14 @@ type config struct {
 	idle       time.Duration // per-client state is dropped after this long unused
 	maxClients int           // per-client mode: least recently used is evicted beyond this
 	reply72    bool          // answer PCM with 9-byte 72-bit frames instead of 7 bytes
-	encoder    ambe.Config
-	decoder    ambe.DecoderConfig
+	encoder    p25half.Config
+	decoder    p25half.DecoderConfig
 }
 
 // codec is the vocoder state of one stream.
 type codec struct {
-	enc  *ambe.Encoder
-	dec  *ambe.Decoder
+	enc  *p25half.Encoder
+	dec  *p25half.Decoder
 	used time.Time
 }
 
@@ -55,7 +55,7 @@ func newServer(cfg config) *server {
 }
 
 func (s *server) newCodec() *codec {
-	return &codec{enc: ambe.NewEncoderConfig(s.cfg.encoder), dec: ambe.NewDecoderConfig(s.cfg.decoder)}
+	return &codec{enc: p25half.NewEncoderConfig(s.cfg.encoder), dec: p25half.NewDecoderConfig(s.cfg.decoder)}
 }
 
 // codecFor returns the state for a client: the single shared state (as
@@ -119,7 +119,7 @@ func (s *server) evictOldest() {
 func (s *server) handle(pkt []byte, client string) []byte {
 	switch len(pkt) {
 	case pcmBytes:
-		var pcm [ambe.FrameSamples]int16
+		var pcm [p25half.FrameSamples]int16
 		for i := range pcm {
 			pcm[i] = int16(binary.LittleEndian.Uint16(pkt[2*i:]))
 		}
@@ -150,7 +150,7 @@ func (s *server) handle(pkt []byte, client string) []byte {
 	return nil
 }
 
-func pcmBytesOf(pcm [ambe.FrameSamples]int16) []byte {
+func pcmBytesOf(pcm [p25half.FrameSamples]int16) []byte {
 	out := make([]byte, pcmBytes)
 	for i, v := range pcm {
 		binary.LittleEndian.PutUint16(out[2*i:], uint16(v))

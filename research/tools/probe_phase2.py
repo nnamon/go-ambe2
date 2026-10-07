@@ -28,7 +28,7 @@ fr = bits([b0, 0, 16, 300, 70, 3, 3, 3, 3])
 v = Md380Vocoder()
 fw = np.concatenate([np.array(v.decode_frame(fr), float) for _ in range(60)])
 open(SP + '/p.bits', 'w').write('\n'.join(''.join(map(str, fr)) for _ in range(60)) + '\n')
-subprocess.run(['bin/ambe-dec', SP + '/p.bits', SP + '/p.raw'], capture_output=True)
+subprocess.run(['bin/mbevoc-dec', SP + '/p.bits', SP + '/p.raw'], capture_output=True)
 go = np.fromfile(SP + '/p.raw', '<i2').astype(float)
 for name, pcm in (("firmware", fw), ("go", go)):
     print(f"== {name} decoder, f0={f0*8000:.1f} Hz, L={L}")

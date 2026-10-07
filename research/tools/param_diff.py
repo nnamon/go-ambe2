@@ -11,7 +11,7 @@ SET = os.environ.get("SET", "testdata/matrix")
 
 def params(path):
     out = []
-    for line in subprocess.run(["bin/ambe-params", path], capture_output=True, text=True, check=True).stdout.splitlines():
+    for line in subprocess.run(["bin/mbevoc-params", path], capture_output=True, text=True, check=True).stdout.splitlines():
         t = line.split()
         if t[1] != "V":
             out.append(None if t[1] != "S" else ("S", float(t[11]) if len(t) > 11 else 0, 0, 0, "", []))

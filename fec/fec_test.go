@@ -8,7 +8,7 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/nnamon/go-ambe2/frame"
+	"github.com/nnamon/mbevoc/frame"
 )
 
 // bits49 parses a 49-bit value given as 13 hex digits, left-aligned (the last

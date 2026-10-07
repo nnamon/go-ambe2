@@ -11,8 +11,8 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/nnamon/go-ambe2/frame"
-	"github.com/nnamon/go-ambe2/quant"
+	"github.com/nnamon/mbevoc/frame"
+	"github.com/nnamon/mbevoc/quant"
 )
 
 // TestLayoutMatchesMbelib parses the voice-frame bit assignments out of

@@ -24,7 +24,7 @@ for b0 in (2, 10, 20, 30, 45, 60, 80, 100, 119):
     v = Md380Vocoder()
     fw = np.concatenate([np.array(v.decode_frame(bits(f)), float) for f in seq])[1600:]
     open(SP + '/p.bits', 'w').write('\n'.join(''.join(map(str, bits(f))) for f in seq) + '\n')
-    subprocess.run(['bin/ambe-dec', SP + '/p.bits', SP + '/p.raw'], check=True, capture_output=True, env=os.environ)
+    subprocess.run(['bin/mbevoc-dec', SP + '/p.bits', SP + '/p.raw'], check=True, capture_output=True, env=os.environ)
     go = np.fromfile(SP + '/p.raw', '<i2').astype(float)[1600:]
     fq, pf = welch(fw, 8000, nperseg=256); _, pg = welch(go, 8000, nperseg=256)
     band = lambda p: np.array([p[(fq >= a) & (fq < b)].sum() for a, b in zip(edges[:-1], edges[1:])])

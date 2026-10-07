@@ -3,13 +3,13 @@ package dstar
 import (
 	"math"
 
-	"github.com/nnamon/go-ambe2/frame"
-	"github.com/nnamon/go-ambe2/internal/halfrate"
-	"github.com/nnamon/go-ambe2/internal/mbe"
-	"github.com/nnamon/go-ambe2/quant"
+	"github.com/nnamon/mbevoc/frame"
+	"github.com/nnamon/mbevoc/internal/halfrate"
+	"github.com/nnamon/mbevoc/internal/mbe"
+	"github.com/nnamon/mbevoc/quant"
 )
 
-// Config tunes the encoder; see ambe.Config for the fields' meaning.  The
+// Config tunes the encoder; see p25half.Config for the fields' meaning.  The
 // encoder always sends voice frames: the silence settings are ignored, since
 // how D-STAR radios encode silence is not known (the decoder plays b0 = 124
 // and 125 as silence frames, as the null AMBE frame of D-STAR gateways uses
@@ -41,7 +41,7 @@ func (e *Encoder) Encode(pcm *[FrameSamples]int16) Bits {
 	return Params(e.e.Encode(pcm)).Bits()
 }
 
-// DecoderConfig tunes the decoder (see ambe.DecoderConfig; there are no
+// DecoderConfig tunes the decoder (see p25half.DecoderConfig; there are no
 // silence frames).
 type DecoderConfig struct {
 	StandardSynthesis bool

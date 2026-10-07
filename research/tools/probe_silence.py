@@ -19,7 +19,7 @@ for vb2, sb2 in ((22, 6), (22, 12), (10, 6), (22, 20)):
     v = Md380Vocoder()
     fw = np.concatenate([np.array(v.decode_frame(bits(f)), float) for f in seq])
     open(SP + '/s.bits', 'w').write('\n'.join(''.join(map(str, bits(f))) for f in seq) + '\n')
-    subprocess.run(['bin/ambe-dec', SP + '/s.bits', SP + '/s.raw'], capture_output=True)
+    subprocess.run(['bin/mbevoc-dec', SP + '/s.bits', SP + '/s.raw'], capture_output=True)
     go = np.fromfile(SP + '/s.raw', '<i2').astype(float)
     r = lambda x, k: np.sqrt(np.mean(x[160*k:160*k+160]**2))
     print(f"voice b2={vb2}, silence b2={sb2}")

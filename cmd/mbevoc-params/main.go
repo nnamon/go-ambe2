@@ -1,4 +1,4 @@
-// Command ambe-params decodes AMBE+2 3600x2450 frames (.amb or .bits) into
+// Command mbevoc-params decodes AMBE+2 3600x2450 frames (.amb or .bits) into
 // MBE model parameters, one line per frame:
 //
 //	index kind b0..b8 f0(Hz) L gamma voicing log2M[1..L]
@@ -10,13 +10,13 @@ import (
 	"os"
 	"strings"
 
-	"github.com/nnamon/go-ambe2/frame"
-	"github.com/nnamon/go-ambe2/quant"
+	"github.com/nnamon/mbevoc/frame"
+	"github.com/nnamon/mbevoc/quant"
 )
 
 func main() {
 	if len(os.Args) != 2 {
-		fmt.Fprintln(os.Stderr, "usage: ambe-params in.amb|in.bits")
+		fmt.Fprintln(os.Stderr, "usage: mbevoc-params in.amb|in.bits")
 		os.Exit(2)
 	}
 	f, err := os.Open(os.Args[1])

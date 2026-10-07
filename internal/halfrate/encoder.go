@@ -1,5 +1,5 @@
 // Package halfrate is the encoder and decoder engine of the half-rate MBE
-// vocoder family: AMBE+2 3600x2450 (package ambe) and D-STAR's AMBE
+// vocoder family: AMBE+2 3600x2450 (package p25half) and D-STAR's AMBE
 // 3600x2400 (package dstar).  They share the analysis, quantizer structure
 // and synthesis and differ in their codebooks (quant.Codebook) and frame
 // formats, which the public packages handle.
@@ -8,12 +8,12 @@ package halfrate
 import (
 	"math"
 
-	"github.com/nnamon/go-ambe2/frame"
-	"github.com/nnamon/go-ambe2/internal/mbe"
-	"github.com/nnamon/go-ambe2/quant"
+	"github.com/nnamon/mbevoc/frame"
+	"github.com/nnamon/mbevoc/internal/mbe"
+	"github.com/nnamon/mbevoc/quant"
 )
 
-// Config tunes the encoder (see ambe.Config for the meaning of each field).
+// Config tunes the encoder (see p25half.Config for the meaning of each field).
 type Config struct {
 	Lookahead          int
 	RefineMinBin       int

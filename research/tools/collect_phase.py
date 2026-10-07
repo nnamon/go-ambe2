@@ -1,6 +1,6 @@
 #!/usr/bin/env python3
 """Collect steady-state harmonic phases of the MD-380 decoder (black box) for
-random all-voiced spectra, with the decoded log2 amplitudes from bin/ambe-params.
+random all-voiced spectra, with the decoded log2 amplitudes from bin/mbevoc-params.
 Writes testdata/phase_probe.json."""
 import json, subprocess, sys
 import tempfile
@@ -37,7 +37,7 @@ for k in range(N):
     v = Md380Vocoder()
     pcm = np.concatenate([np.array(v.decode_frame(fr), float) for _ in range(40)])
     open(SP + '/c.bits', 'w').write('\n'.join(''.join(map(str, fr)) for _ in range(40)) + '\n')
-    last = subprocess.run(['bin/ambe-params', SP + '/c.bits'], capture_output=True, text=True).stdout.splitlines()[-1].split()
+    last = subprocess.run(['bin/mbevoc-params', SP + '/c.bits'], capture_output=True, text=True).stdout.splitlines()[-1].split()
     log2M = list(map(float, last[15:15 + L]))
     ph1, amp1, r1 = measure(pcm, f0, L, 160 * 30)
     ph2, amp2, r2 = measure(pcm, f0, L, 160 * 34)

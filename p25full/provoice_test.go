@@ -1,11 +1,11 @@
-package imbe
+package p25full
 
 import (
 	"math/rand"
 	"os"
 	"testing"
 
-	"github.com/nnamon/go-ambe2/internal/codebook"
+	"github.com/nnamon/mbevoc/internal/codebook"
 )
 
 func TestProVoiceRoundTrip(t *testing.T) {

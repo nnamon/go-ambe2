@@ -8,13 +8,13 @@ import (
 	"testing"
 	"time"
 
-	ambe "github.com/nnamon/go-ambe2"
-	"github.com/nnamon/go-ambe2/fec"
-	"github.com/nnamon/go-ambe2/frame"
+	"github.com/nnamon/mbevoc/fec"
+	"github.com/nnamon/mbevoc/frame"
+	"github.com/nnamon/mbevoc/p25half"
 )
 
 func testConfig() config {
-	return config{idle: 30 * time.Second, maxClients: 4, encoder: ambe.DefaultConfig()}
+	return config{idle: 30 * time.Second, maxClients: 4, encoder: p25half.DefaultConfig()}
 }
 
 // speech-like test signal: a harmonic tone with a slowly varying pitch.
@@ -23,7 +23,7 @@ func pcmFrames(n int, f0 float64) [][]byte {
 	t := 0
 	for k := range out {
 		b := make([]byte, pcmBytes)
-		for i := 0; i < ambe.FrameSamples; i++ {
+		for i := 0; i < p25half.FrameSamples; i++ {
 			f := f0 * (1 + 0.1*math.Sin(float64(t)/4000))
 			v := 0.0
 			for l := 1; float64(l)*f < 3500; l++ {
@@ -37,7 +37,7 @@ func pcmFrames(n int, f0 float64) [][]byte {
 	return out
 }
 
-func toPCM(b []byte) (p [ambe.FrameSamples]int16) {
+func toPCM(b []byte) (p [p25half.FrameSamples]int16) {
 	for i := range p {
 		p[i] = int16(binary.LittleEndian.Uint16(b[2*i:]))
 	}
@@ -48,7 +48,7 @@ func toPCM(b []byte) (p [ambe.FrameSamples]int16) {
 // frames in the 7-byte wire form, carrying encoder state across requests.
 func TestEncodeReply(t *testing.T) {
 	s := newServer(testConfig())
-	ref := ambe.NewEncoder()
+	ref := p25half.NewEncoder()
 	for k, req := range pcmFrames(60, 140) {
 		got := s.handle(req, "a")
 		pcm := toPCM(req)
@@ -64,7 +64,7 @@ func TestEncodeReply(t *testing.T) {
 // across requests and answered with 320 bytes of little-endian PCM.
 func TestDecodeReply(t *testing.T) {
 	s := newServer(testConfig())
-	enc, ref := ambe.NewEncoder(), ambe.NewDecoder()
+	enc, ref := p25half.NewEncoder(), p25half.NewDecoder()
 	for k, req := range pcmFrames(60, 180) {
 		pcm := toPCM(req)
 		b := enc.Encode(&pcm)
@@ -82,7 +82,7 @@ func TestDecode72Reply(t *testing.T) {
 	cfg := testConfig()
 	cfg.reply72 = true
 	s := newServer(cfg)
-	enc, ref := ambe.NewEncoder(), ambe.NewDecoder()
+	enc, ref := p25half.NewEncoder(), p25half.NewDecoder()
 	for k, req := range pcmFrames(40, 120) {
 		reply := s.handle(req, "a")
 		if len(reply) != ambe72Size {

@@ -1,10 +1,10 @@
-package ambe
+package p25half
 
 import (
-	"github.com/nnamon/go-ambe2/fec"
-	"github.com/nnamon/go-ambe2/frame"
-	"github.com/nnamon/go-ambe2/internal/halfrate"
-	"github.com/nnamon/go-ambe2/quant"
+	"github.com/nnamon/mbevoc/fec"
+	"github.com/nnamon/mbevoc/frame"
+	"github.com/nnamon/mbevoc/internal/halfrate"
+	"github.com/nnamon/mbevoc/quant"
 )
 
 // Decoder converts AMBE+2 3600x2450 frames back into 8 kHz 16-bit PCM.

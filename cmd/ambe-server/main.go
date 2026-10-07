@@ -30,7 +30,7 @@ import (
 	"syscall"
 	"time"
 
-	ambe "github.com/nnamon/go-ambe2"
+	"github.com/nnamon/mbevoc/p25half"
 )
 
 func main() {
@@ -43,7 +43,7 @@ func main() {
 	lookahead := flag.Int("lookahead", 2, "encoder pitch look-ahead frames: 2 (best quality, 60 ms codec delay) or 1 (39 ms)")
 	silence := flag.Bool("silence", true, "send silence frames for non-speech input")
 	standard := flag.Bool("standard", false, "decode with the TIA-102.BABA phase model exactly")
-	silGain := flag.Float64("silence-gain", ambe.SilenceGain, "decoder amplitude factor for silence frames (1 = standard)")
+	silGain := flag.Float64("silence-gain", p25half.SilenceGain, "decoder amplitude factor for silence frames (1 = standard)")
 	verbose := flag.Bool("v", false, "log clients and per-minute statistics")
 	flag.Usage = func() {
 		fmt.Fprintf(os.Stderr, "usage: ambe-server [flags]\n\nA drop-in replacement for md380-emu -S (UDP AMBE+2 vocoder server).\n\n")
@@ -58,7 +58,7 @@ func main() {
 		log.Fatalf("ambe-server: -state must be shared or client, not %q", *state)
 	}
 
-	enc := ambe.DefaultConfig()
+	enc := p25half.DefaultConfig()
 	enc.Lookahead = *lookahead
 	enc.Silence = *silence
 	cfg := config{
@@ -67,7 +67,7 @@ func main() {
 		maxClients: *maxClients,
 		reply72:    *reply72,
 		encoder:    enc,
-		decoder:    ambe.DecoderConfig{StandardSynthesis: *standard, SilenceGain: *silGain},
+		decoder:    p25half.DecoderConfig{StandardSynthesis: *standard, SilenceGain: *silGain},
 	}
 	if cfg.maxClients < 1 {
 		cfg.maxClients = 1

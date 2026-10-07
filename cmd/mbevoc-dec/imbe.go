@@ -8,14 +8,14 @@ import (
 	"os"
 	"strings"
 
-	"github.com/nnamon/go-ambe2/imbe"
+	"github.com/nnamon/mbevoc/p25full"
 )
 
 // decodeIMBE decodes IMBE 7200x4400 frames from *.imb, *.bits (88 '0'/'1'
 // per line), *.imbe144 (18-byte coded frames) or *.pv (18-byte EDACS
 // ProVoice frames) into PCM.
 func decodeIMBE(f *os.File, in string) ([]int16, error) {
-	dec := imbe.NewDecoderConfig(imbe.DecoderConfig{
+	dec := p25full.NewDecoderConfig(p25full.DecoderConfig{
 		StandardSynthesis: *standard,
 		NoEnhancement:     *noEnh,
 		NoSmoothing:       *noSmooth,
@@ -34,13 +34,13 @@ func decodeIMBE(f *os.File, in string) ([]int16, error) {
 				}
 				return nil, err
 			}
-			var s [imbe.FrameSamples]int16
-			var e imbe.Errors
+			var s [p25full.FrameSamples]int16
+			var e p25full.Errors
 			if pv {
-				fr := imbe.UnpackProVoice(p)
+				fr := p25full.UnpackProVoice(p)
 				s, e = dec.DecodeProVoice(&fr)
 			} else {
-				fr := imbe.Unpack(p)
+				fr := p25full.Unpack(p)
 				s, e = dec.DecodeFrame(&fr)
 			}
 			corrected += e.Total()
@@ -57,7 +57,7 @@ func decodeIMBE(f *os.File, in string) ([]int16, error) {
 			if len(line) != 88 {
 				return nil, fmt.Errorf("want 88 bits per line, got %d", len(line))
 			}
-			var b imbe.Bits
+			var b p25full.Bits
 			for i := range b {
 				b[i] = line[i] - '0'
 			}
@@ -68,7 +68,7 @@ func decodeIMBE(f *os.File, in string) ([]int16, error) {
 			return nil, err
 		}
 	default:
-		frames, err := imbe.ReadIMB(f)
+		frames, err := p25full.ReadIMB(f)
 		if err != nil {
 			return nil, err
 		}

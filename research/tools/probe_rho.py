@@ -30,7 +30,7 @@ for b3 in (300, 37, 450):
             v = Md380Vocoder(); pcm = np.concatenate([np.array(v.decode_frame(bits(f)), float) for f in seq])
         else:
             open(SP+'/r.bits', 'w').write('\n'.join(''.join(map(str, bits(f))) for f in seq)+'\n')
-            subprocess.run(['bin/ambe-dec', SP+'/r.bits', SP+'/r.raw'], capture_output=True)
+            subprocess.run(['bin/mbevoc-dec', SP+'/r.bits', SP+'/r.raw'], capture_output=True)
             pcm = np.fromfile(SP+'/r.raw', '<i2').astype(float)
         n = int(round(3/f0))
         shapes = []

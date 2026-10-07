@@ -1,12 +1,12 @@
-package ambe
+package p25half
 
 import (
 	"math"
 	"math/rand"
 	"testing"
 
-	"github.com/nnamon/go-ambe2/fec"
-	"github.com/nnamon/go-ambe2/frame"
+	"github.com/nnamon/mbevoc/fec"
+	"github.com/nnamon/mbevoc/frame"
 )
 
 func rms(x []float64) float64 {

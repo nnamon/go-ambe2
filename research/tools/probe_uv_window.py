@@ -21,7 +21,7 @@ for r in range(runs):
     v = Md380Vocoder()
     fw = np.concatenate([np.array(v.decode_frame(bits(f)), float) for f in seq])
     open(SP + '/u.bits', 'w').write('\n'.join(''.join(map(str, bits(f))) for f in seq) + '\n')
-    subprocess.run(['bin/ambe-dec', SP + '/u.bits', SP + '/u.raw'], check=True, capture_output=True)
+    subprocess.run(['bin/mbevoc-dec', SP + '/u.bits', SP + '/u.raw'], check=True, capture_output=True)
     go = np.fromfile(SP + '/u.raw', '<i2').astype(float)
     s = 160 * (lead - 1)               # from the start of the frame before the loud one
     pw["MD-380"] += fw[s:s + 960] ** 2 / runs

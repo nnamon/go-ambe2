@@ -31,7 +31,7 @@ for b0 in (60, 90):
         # decoded amplitudes of the steady frame
         amb = SP + '/p.bits'
         open(amb, 'w').write(''.join(map(str, fr)) * 0 + ('\n'.join(''.join(map(str, fr)) for _ in range(60)) + '\n'))
-        out = subprocess.run(['bin/ambe-params', amb], capture_output=True, text=True).stdout.splitlines()[-1].split()
+        out = subprocess.run(['bin/mbevoc-params', amb], capture_output=True, text=True).stdout.splitlines()[-1].split()
         logM = np.array(list(map(float, out[15:15 + L]))) * np.log(2)
         # Measure harmonic phases over an analysis span centred in the steady region.
         P = 1 / f0

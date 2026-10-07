@@ -1,8 +1,8 @@
 package dstar
 
 import (
-	"github.com/nnamon/go-ambe2/internal/codebook"
-	"github.com/nnamon/go-ambe2/internal/ecc"
+	"github.com/nnamon/mbevoc/internal/codebook"
+	"github.com/nnamon/mbevoc/internal/ecc"
 )
 
 // SoftFrame holds soft decisions for a 72-bit frame in transmission order:

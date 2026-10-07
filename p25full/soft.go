@@ -1,8 +1,8 @@
-package imbe
+package p25full
 
 import (
-	"github.com/nnamon/go-ambe2/internal/codebook"
-	"github.com/nnamon/go-ambe2/internal/ecc"
+	"github.com/nnamon/mbevoc/internal/codebook"
+	"github.com/nnamon/mbevoc/internal/ecc"
 )
 
 // SoftFrame holds soft decisions for a 144-bit P25 frame in transmission

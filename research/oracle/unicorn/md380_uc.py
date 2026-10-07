@@ -2,8 +2,9 @@
 """Native (no Docker/qemu-user) MD380 D002.032 AMBE+2 oracle on Unicorn.
 
 Loads the same unwrapped firmware + SRAM core dump that md380-emu links in,
-and calls the same firmware entry points with the same arguments.  Because it
-runs on Unicorn, intermediate state can be hooked/dumped (see Md380Vocoder.hook_*).
+and calls the same firmware entry points with the same arguments.  Like
+md380-emu, it only writes the input buffer, calls the encode or decode entry
+point and reads the output buffer.
 
   md380_uc.py enc in.raw out.amb|out.bits
   md380_uc.py dec in.amb|in.bits out.raw

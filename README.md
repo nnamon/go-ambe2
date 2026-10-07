@@ -1,33 +1,35 @@
-# go-ambe2 — from-scratch Go MBE vocoders: AMBE+2, IMBE and D-STAR AMBE
+# mbevoc — from-scratch Go MBE vocoders for digital voice radio
 
 A pure Go library (no cgo, no emulation) of encoders and decoders for the multi-band excitation (MBE) vocoders of digital voice radio:
 
 | vocoder | used by | package | parameter frame | coded frame |
 |---|---|---|---|---|
-| AMBE+2 3600x2450 ("half rate") | DMR, NXDN, P25 Phase 2 | `ambe` (module root) | 49 bits | 72 bits |
-| IMBE 7200x4400 ("full rate") | P25 Phase 1 | `imbe` | 88 bits | 144 bits |
-| IMBE 7100x4400 | EDACS ProVoice | `imbe` (`ProVoiceFrame`) | 88 bits | 142 bits |
+| AMBE+2 3600x2450 ("half rate") | DMR, NXDN, P25 Phase 2 | `p25half` | 49 bits | 72 bits |
+| IMBE 7200x4400 ("full rate") | P25 Phase 1 | `p25full` | 88 bits | 144 bits |
+| IMBE 7100x4400 | EDACS ProVoice | `p25full` (`ProVoiceFrame`) | 88 bits | 142 bits |
 | AMBE 3600x2400 | D-STAR | `dstar` | 49 bits (48 used) | 72 bits (9-byte voice data) |
 
 For each, the encoder turns 8 kHz 16-bit PCM into frames and the decoder turns frames back into PCM, with error correction (hard- or soft-decision), frame repeats and muting.
 
+The vocoder names say which formats this module is compatible with. AMBE is a registered trademark, and AMBE+2 and IMBE are trademarks, of Digital Voice Systems, Inc. (DVSI). This project is not affiliated with or endorsed by DVSI; see Patents and trademarks.
+
 AMBE+2 and IMBE are written from their published specifications, TIA-102.BABA-1 and TIA-102.BABA, which build on Griffin and Lim's multi-band excitation model. The AMBE+2 codebooks come from mbelib. D-STAR's rate and ProVoice have no public specification. They follow the reverse-engineered descriptions in mbelib and DSD, checked against mbelib-neo and real-world frames.
 
-For AMBE+2, a Tytera MD-380 radio's firmware vocoder served only as a black-box check, run outside this module. It was used to score the output and to settle a few behaviours the standards leave open. It also showed that real radios place four bits of the frame differently from the draft standard (see Provenance and Deviations).
+For AMBE+2, a Tytera MD-380 radio's firmware vocoder served only as an external check, run outside this module and treated as a black box. It was used to score the output and to settle a few behaviours the standards leave open. It also showed that real radios place four bits of the frame differently from the draft standard (see Provenance and Deviations).
 
 ```
-go get github.com/nnamon/go-ambe2                     # library
-go install github.com/nnamon/go-ambe2/cmd/...@latest  # ambe-enc, ambe-dec, ambe-params, ambe-server
+go get github.com/nnamon/mbevoc                     # library
+go install github.com/nnamon/mbevoc/cmd/...@latest  # mbevoc-enc, mbevoc-dec, mbevoc-params, ambe-server
 
-ambe-enc speech.wav speech.amb        # AMBE+2: 49-bit frames, DSD .amb container
-ambe-enc speech.raw speech.ambe72     # AMBE+2: 72-bit DMR frames, 9 bytes each
-ambe-enc speech.wav speech.imb        # IMBE (P25 Phase 1): 88-bit frames, DSD .imb container
-ambe-enc speech.wav speech.imbe144    # IMBE: 144-bit P25 frames, 18 bytes each
-ambe-enc speech.wav speech.pv         # IMBE: 142-bit EDACS ProVoice frames, 18 bytes each
-ambe-enc speech.wav speech.dmb        # D-STAR: 49-bit frames, dsd-fme .dmb container
-ambe-enc speech.wav speech.dv         # D-STAR: 72-bit frames as 9-byte voice data
-ambe-dec speech.imb speech.wav        # decode any of these to PCM / WAV
-ambe-params speech.amb                # AMBE+2 frames to MBE model parameters
+mbevoc-enc speech.wav speech.amb      # AMBE+2: 49-bit frames, DSD .amb container
+mbevoc-enc speech.raw speech.ambe72   # AMBE+2: 72-bit DMR frames, 9 bytes each
+mbevoc-enc speech.wav speech.imb      # IMBE (P25 Phase 1): 88-bit frames, DSD .imb container
+mbevoc-enc speech.wav speech.imbe144  # IMBE: 144-bit P25 frames, 18 bytes each
+mbevoc-enc speech.wav speech.pv       # IMBE: 142-bit EDACS ProVoice frames, 18 bytes each
+mbevoc-enc speech.wav speech.dmb      # D-STAR: 49-bit frames, dsd-fme .dmb container
+mbevoc-enc speech.wav speech.dv       # D-STAR: 72-bit frames as 9-byte voice data
+mbevoc-dec speech.imb speech.wav      # decode any of these to PCM / WAV
+mbevoc-params speech.amb              # AMBE+2 frames to MBE model parameters
 ambe-server -S 2470                   # AMBE+2 UDP vocoder server, drop-in for md380-emu -S (see below)
 ```
 
@@ -35,28 +37,28 @@ The codec follows the file name; `-codec ambe2|imbe|dstar` overrides it (for `.b
 
 ```go
 import (
-	ambe "github.com/nnamon/go-ambe2"
-	"github.com/nnamon/go-ambe2/dstar"
-	"github.com/nnamon/go-ambe2/fec"
-	"github.com/nnamon/go-ambe2/imbe"
+	"github.com/nnamon/mbevoc/dstar"
+	"github.com/nnamon/mbevoc/fec"
+	"github.com/nnamon/mbevoc/p25full"
+	"github.com/nnamon/mbevoc/p25half"
 )
 
-var pcm [ambe.FrameSamples]int16 // 160 samples = 20 ms, the same for every codec
+var pcm [p25half.FrameSamples]int16 // 160 samples = 20 ms, the same for every codec
 
 // AMBE+2 (DMR, NXDN, P25 Phase 2)
-enc, dec := ambe.NewEncoder(), ambe.NewDecoder()
+enc, dec := p25half.NewEncoder(), p25half.NewDecoder()
 bits := enc.Encode(&pcm)          // frame.Bits (49 bits)
 air := fec.Encode(&bits)          // fec.Bits72, fec.Pack -> [9]byte
 out := dec.Decode(&bits)          // [160]int16 from an error-free 49-bit frame
 out, errs := dec.Decode72(&air)   // from an on-air frame, with FEC, repeats and muting
-dtmf0 := ambe.ToneFrame(128, 100) // tone frame: DTMF "0", 100/127 amplitude
+dtmf0 := p25half.ToneFrame(128, 100) // tone frame: DTMF "0", 100/127 amplitude
 
 // IMBE (P25 Phase 1, EDACS ProVoice)
-ienc, idec := imbe.NewEncoder(), imbe.NewDecoder()
-ib := ienc.Encode(&pcm)           // imbe.Bits (88 bits)
-p25 := ib.Encode()                // imbe.Frame (144 bits, Pack -> [18]byte)
+ienc, idec := p25full.NewEncoder(), p25full.NewDecoder()
+ib := ienc.Encode(&pcm)           // p25full.Bits (88 bits)
+p25 := ib.Encode()                // p25full.Frame (144 bits, Pack -> [18]byte)
 out, ierr := idec.DecodeFrame(&p25)
-pv := ib.EncodeProVoice()         // imbe.ProVoiceFrame (142 bits)
+pv := ib.EncodeProVoice()         // p25full.ProVoiceFrame (142 bits)
 out, ierr = idec.DecodeProVoice(&pv)
 
 // D-STAR
@@ -66,7 +68,7 @@ df := db.Encode()                 // dstar.Frame (72 bits, Pack -> 9-byte voice 
 out, derr := ddec.DecodeFrame(&df)
 
 // Soft decisions (log-likelihood ratios, positive = 0) for any coded frame:
-// fec.DecodeSoft / Decoder.Decode72Soft, imbe.SoftFrame / SoftProVoiceFrame,
+// fec.DecodeSoft / Decoder.Decode72Soft, p25full.SoftFrame / SoftProVoiceFrame,
 // dstar.SoftFrame, and the matching Decoder methods.
 ```
 
@@ -106,18 +108,18 @@ mbelib-neo's decoders are much faster, at 7–8 µs a frame against 28–32 µs 
 
 | package | contents |
 |---|---|
-| `ambe` | AMBE+2. `Encoder`: speech analysis, voice activity detection, quantization. `Decoder`: enhancement and synthesis, frame repeat and muting, tone frames (`ToneFrame`, `ToneParams`, `IsTone`), `Decode72` / `Decode72Soft` |
+| `p25half` | AMBE+2 3600x2450 (TIA-102.BABA-1). `Encoder`: speech analysis, voice activity detection, quantization. `Decoder`: enhancement and synthesis, frame repeat and muting, tone frames (`ToneFrame`, `ToneParams`, `IsTone`), `Decode72` / `Decode72Soft` |
 | `quant` | half-rate parameter quantizer: `Predictor.Quantize` (encoder search) and `Predictor.Dequantize` (decoder-side reconstruction, shared so the encoder tracks the decoder exactly), for a `Codebook`: `AMBE2` or `DStar` |
 | `fec` | AMBE+2 49 ↔ 72-bit channel coding: [24,12]/[23,12] Golay, PN modulation, Annex H / DMR interleave, with hard and soft error-correcting decode |
 | `frame` | the AMBE+2 49-bit frame: b0..b8 bit layout (with conversions to and from the draft standard's, `FromDraftLayout` / `ToDraftLayout`), DSD `.amb`, text and 7-byte wire (`Pack7`) forms |
-| `imbe` | IMBE 7200x4400: `Encoder`, `Decoder` (with error estimation, repeats, muting and adaptive smoothing), the 88-bit `Bits` and their quantizer values, the 144-bit P25 `Frame`, the 142-bit EDACS `ProVoiceFrame`, soft-decision frames, DSD `.imb` files |
+| `p25full` | IMBE 7200x4400 (TIA-102.BABA): `Encoder`, `Decoder` (with error estimation, repeats, muting and adaptive smoothing), the 88-bit `Bits` and their quantizer values, the 144-bit P25 `Frame`, the 142-bit EDACS `ProVoiceFrame`, soft-decision frames, DSD `.imb` files |
 | `dstar` | D-STAR AMBE 3600x2400: `Encoder`, `Decoder`, the 49-bit `Bits`, the 72-bit `Frame` and 9-byte voice data, soft-decision frames, dsd-fme `.dmb` files |
-| `internal/halfrate` | the encoder and decoder engine shared by `ambe` and `dstar` |
+| `internal/halfrate` | the encoder and decoder engine shared by `p25half` and `dstar` |
 | `internal/mbe` | the MBE core shared by all codecs: TIA-102.BABA speech analysis (pitch estimation and tracking, refinement, V/UV, amplitudes), spectral enhancement, speech synthesis, and the windows w_I, w_R, w_S and pitch lowpass (generated from the spec's Annexes B–D and I) |
 | `internal/ecc` | Golay [23,12]/[24,12], the P25 [15,11] Hamming code, the PN sequence, and exact maximum-likelihood soft decoders |
-| `internal/codebook` | quantizer and frame tables: AMBE+2 and D-STAR codebooks generated from mbelib (ISC licence, see `LICENSE.mbelib`), IMBE tables from TIA-102.BABA's annexes, D-STAR and ProVoice frame orders from DSD (ISC) |
+| `internal/codebook` | quantizer and frame tables: AMBE+2 and D-STAR codebooks generated from mbelib (ISC licence, see `LICENSE.mbelib`), IMBE tables from TIA-102.BABA's annexes, D-STAR and ProVoice frame orders from DSD (ISC licence, see `LICENSE.dsd`) |
 | `internal/dsp` | FFT and small helpers |
-| `cmd/ambe-enc`, `cmd/ambe-dec`, `cmd/ambe-params` | file encoder and decoder for every codec, AMBE+2 parameter dump |
+| `cmd/mbevoc-enc`, `cmd/mbevoc-dec`, `cmd/mbevoc-params` | file encoder and decoder for every codec, AMBE+2 parameter dump |
 | `cmd/ambe-server` | UDP vocoder server, protocol-compatible with `md380-emu -S` |
 
 ## Provenance
@@ -144,11 +146,13 @@ The implementation was written from the published literature:
 
 This module contains no firmware, firmware-derived code, or firmware-extracted data.
 
-A Tytera MD-380 radio's firmware vocoder was used only as a **black-box check**, run outside this module (Docker/qemu or Unicorn under `research/oracle`). It was used to:
+A Tytera MD-380 radio's firmware vocoder was used only as a **black-box check**, run outside this module (Docker/qemu or Unicorn under `research/oracle`). The harnesses write a frame or 20 ms of PCM to the vocoder's input buffer, call its encode or decode entry point, and read its output buffer. It was used to:
 
 * score quality in both directions: Go-encoded frames through the MD-380 decoder, and MD-380-encoded frames through the Go decoder;
 * confirm behaviour where the published sources disagree (for example, the specification and mbelib on silence frames), or where the sources and real radios disagree (the bit placement below);
 * choose settings the standards leave open. Each is marked **[MD-380]** below.
+
+One research script, `research/tools/fw_callgraph.py`, disassembles the firmware to measure how much code its vocoder is (169 functions, about 50 KB). Nothing from that scan was used in this module. The firmware is not in this repository; `research/setup.sh` downloads it through md380tools for local use.
 
 ## Deviations from / additions to the standards
 
@@ -304,7 +308,7 @@ The encoder's own algorithmic delay is 160 + 160·`Lookahead` samples: the pitch
 DMR bridges that need software AMBE+2 commonly run `md380-emu -S 2470`, the MD-380 firmware vocoder under qemu-user with a small UDP server. DVSwitch's Analog_Bridge is one example. `ambe-server` speaks the same protocol, backed by this library: no emulator, no firmware and no qemu. It is a static binary for Linux (x86-64, arm64, ARMv6/v7), macOS and Windows.
 
 ```
-go install github.com/nnamon/go-ambe2/cmd/ambe-server@latest
+go install github.com/nnamon/mbevoc/cmd/ambe-server@latest
 ambe-server -S 2470                        # listens on 127.0.0.1:2470
 ```
 
@@ -359,7 +363,7 @@ emulatorAddress = 127.0.0.1:2470
 
 ```dockerfile
 FROM golang:1.24 AS build
-RUN CGO_ENABLED=0 go install github.com/nnamon/go-ambe2/cmd/ambe-server@latest
+RUN CGO_ENABLED=0 go install github.com/nnamon/mbevoc/cmd/ambe-server@latest
 FROM gcr.io/distroless/static-debian12
 COPY --from=build /go/bin/ambe-server /ambe-server
 EXPOSE 2470/udp
@@ -372,7 +376,7 @@ Run it with `docker run -p 127.0.0.1:2470:2470/udp …` so the port is only reac
 
 DVSwitch's `md380-emu -S` was built from DVSwitch/md380tools (`research/oracle/dvswitch-md380-emu`). One protocol client then drove both servers over UDP with all 12 held-out recordings, 23,466 frames (`research/tools/server_compat.py`):
 
-* **Frame identity:** every md380-emu reply equals the offline firmware oracle's frame, and every `ambe-server` reply equals `ambe-enc`'s frame, byte for byte.
+* **Frame identity:** every md380-emu reply equals the offline firmware oracle's frame, and every `ambe-server` reply equals `mbevoc-enc`'s frame, byte for byte.
 * **Reply format:** replies always had the documented sizes, and byte 6 was always `0x00` or `0x80`.
 * **Cross-decoding:** each server's frames were decoded by the other. The scores are exactly the library's offline figures (PESQ-NB / STOI), confirming the two speak the same wire format:
 
@@ -423,6 +427,29 @@ Some tests also cross-check against reference data produced outside this module,
 * D-STAR: the field layout against mbelib's decoder source, and 9-byte frames against mbelib-neo's coder on 2,000 random frames;
 * D-STAR: parameter reconstruction against mbelib on 6,225 frames.
 
-## Patent note
+## Patents and trademarks
 
-DVSI holds or held patents on its vocoders. Google Patents lists US 8,359,197 ("Half-rate vocoder", which claims the AMBE+2 3600x2450 frame format) as active until 2028-05-20. The patent position of IMBE, and of D-STAR's AMBE, was not researched here. Check the position for your jurisdiction before distributing or deploying. This is not legal advice.
+This section records what was checked. It is not legal advice: check the position for your jurisdiction, and take advice before distributing or deploying this module commercially.
+
+**Patents.** Digital Voice Systems, Inc. (DVSI) holds patents on its vocoders. These are the ones found in force in October 2026 (Google Patents), with their claims compared against this module:
+
+| patent | claims | in force until | this module |
+|---|---|---|---|
+| US 8,359,197, "Half-rate vocoder" | encoding (claim 1) and decoding (claim 42) with pitch, voicing and gain bits combined in a first error-protected codeword; dependent claims add AMBE+2's 4+4+4-bit c0, Golay coding, PN scrambling keyed from c0, tone frames and frame repeats | 2028-05-20 in the US. Its European counterpart, EP 1 465 158, expired on 2024-03-26 | **`p25half`, the AMBE+2 modes of the commands, and `ambe-server` fall within claims 1 and 42**, as any AMBE+2 3600x2450 implementation does |
+| US 12,462,814, "Bit error correction in digital speech" | soft decoding that tries several candidates for the first codeword and keeps the one with the least total distance across all the frame's codes | 2044-05-07 | outside the published claims: every soft decoder here decodes c0 on its own, then the other codewords |
+| US 12,451,151, "Tone frame detector for digital speech" | finding tone frames by their distance to candidate tone frames, against thresholds | 2042-06-14 | outside the published claims: tone frames are recognised by an exact six-bit pattern (BABA-1 §7), and the tone index by a majority vote of its copies |
+| US 11,990,144 | non-voice data carried in voice frames | 2041 | not implemented |
+| US 11,270,714 | spectral parameters sent for only some subframes, the rest interpolated | 2040-01-08 | not implemented |
+| US 12,254,895 | detecting a speaker's face mask | 2042-11-13 | not implemented |
+| US 8,036,886 | estimating pulsed excitation | 2029-10-02 | not implemented |
+
+* **D-STAR, IMBE and ProVoice:** D-STAR's first codeword carries no voicing bits, so it does not match US 8,359,197's claims. All three formats predate that patent's 2003 priority date. The DVSI patents found from their era have expired: US 5,226,084, 6,199,037, 6,377,916, 6,912,495, 7,634,399, 7,970,606, 8,315,860 and 8,595,002.
+* **Not to be added while the patents are in force:**
+  * soft decoding that chooses c0 by how well the other codewords then decode (US 12,462,814);
+  * recognising tone frames by their distance to the nearest valid tone frame (US 12,451,151).
+* **Limits of this check:**
+  * DVSI's full patent list was not enumerated, so it may be incomplete;
+  * for US 12,462,814 and US 12,451,151, the claims read were those of the published applications (US 2025/0118309 and US 2023/0326473);
+  * outside the US, only US 8,359,197's European counterpart was checked.
+
+**Trademarks.** AMBE is a registered trademark, and AMBE+2 and IMBE are trademarks, of Digital Voice Systems, Inc. They are used here only to name the formats this module is compatible with. This project is not affiliated with or endorsed by DVSI.

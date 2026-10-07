@@ -1,8 +1,8 @@
-package imbe
+package p25full
 
 import (
-	"github.com/nnamon/go-ambe2/internal/codebook"
-	"github.com/nnamon/go-ambe2/internal/ecc"
+	"github.com/nnamon/mbevoc/internal/codebook"
+	"github.com/nnamon/mbevoc/internal/ecc"
 )
 
 // ProVoiceFrame is a 142-bit IMBE 7100x4400 frame, the vocoder frame of

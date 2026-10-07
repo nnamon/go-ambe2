@@ -1,4 +1,4 @@
-package imbe
+package p25full
 
 import (
 	"bytes"
@@ -10,7 +10,7 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/nnamon/go-ambe2/internal/codebook"
+	"github.com/nnamon/mbevoc/internal/codebook"
 )
 
 // TestEncodingExample checks the bit allocation and prioritization against

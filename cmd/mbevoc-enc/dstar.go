@@ -9,7 +9,7 @@ import (
 	"os"
 	"strings"
 
-	"github.com/nnamon/go-ambe2/dstar"
+	"github.com/nnamon/mbevoc/dstar"
 )
 
 // encodeDStar encodes PCM from r into D-STAR AMBE frames written to out:

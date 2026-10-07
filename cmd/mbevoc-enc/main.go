@@ -1,4 +1,4 @@
-// Command ambe-enc encodes 8 kHz mono 16-bit PCM (raw little-endian, or a
+// Command mbevoc-enc encodes 8 kHz mono 16-bit PCM (raw little-endian, or a
 // canonical .wav) into AMBE+2 3600x2450 frames.  The output format follows
 // the output file name:
 //
@@ -28,13 +28,13 @@ import (
 	"os"
 	"strings"
 
-	ambe "github.com/nnamon/go-ambe2"
-	"github.com/nnamon/go-ambe2/fec"
-	"github.com/nnamon/go-ambe2/frame"
+	"github.com/nnamon/mbevoc/fec"
+	"github.com/nnamon/mbevoc/frame"
+	"github.com/nnamon/mbevoc/p25half"
 )
 
 func main() {
-	cfg := ambe.DefaultConfig()
+	cfg := p25half.DefaultConfig()
 	flag.IntVar(&cfg.Lookahead, "lookahead", cfg.Lookahead, "pitch-tracking look-ahead frames (0..2)")
 	flag.IntVar(&cfg.RefineMinBin, "refine-min-bin", cfg.RefineMinBin, "first DFT bin of the pitch refinement error")
 	flag.BoolVar(&cfg.MatchedAmplitudes, "matched-amps", cfg.MatchedAmplitudes, "estimate amplitudes per final voicing")
@@ -47,7 +47,7 @@ func main() {
 	codec := flag.String("codec", "", "ambe2, imbe or dstar (default: by output file name)")
 	draft := flag.Bool("draft-layout", false, "place b3/b4 bits as the draft standard's Table 8 does (for mbelib/DSD), not as DVSI radios do")
 	flag.Usage = func() {
-		fmt.Fprintf(os.Stderr, "usage: ambe-enc [flags] in.raw|in.wav out.amb|out.bits|out.ambe72\n")
+		fmt.Fprintf(os.Stderr, "usage: mbevoc-enc [flags] in.raw|in.wav out.amb|out.bits|out.ambe72|out.imb|out.imbe144|out.pv|out.dmb|out.dv\n")
 		flag.PrintDefaults()
 	}
 	flag.Parse()
@@ -82,7 +82,7 @@ func main() {
 		err = fmt.Errorf("unknown codec %q", *codec)
 	}
 	if err != nil {
-		fmt.Fprintln(os.Stderr, "ambe-enc:", err)
+		fmt.Fprintln(os.Stderr, "mbevoc-enc:", err)
 		os.Exit(1)
 	}
 }
@@ -102,15 +102,15 @@ func openPCM(in string) (*os.File, *bufio.Reader, error) {
 	return f, r, nil
 }
 
-func run(cfg ambe.Config, in, out string, trace, draft bool) error {
+func run(cfg p25half.Config, in, out string, trace, draft bool) error {
 	f, r, err := openPCM(in)
 	if err != nil {
 		return err
 	}
 	defer f.Close()
-	enc := ambe.NewEncoderConfig(cfg)
+	enc := p25half.NewEncoderConfig(cfg)
 	var frames []frame.Bits
-	var pcm [ambe.FrameSamples]int16
+	var pcm [p25half.FrameSamples]int16
 	for {
 		if err := binary.Read(r, binary.LittleEndian, &pcm); err != nil {
 			if errors.Is(err, io.EOF) || errors.Is(err, io.ErrUnexpectedEOF) {
@@ -127,7 +127,7 @@ func run(cfg ambe.Config, in, out string, trace, draft bool) error {
 	}
 	if draft {
 		for i := range frames {
-			if !ambe.IsTone(&frames[i]) {
+			if !p25half.IsTone(&frames[i]) {
 				frames[i] = frames[i].ToDraftLayout()
 			}
 		}

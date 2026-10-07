@@ -1,4 +1,4 @@
-package imbe
+package p25full
 
 import (
 	"math/rand"

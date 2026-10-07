@@ -28,9 +28,9 @@ for c in combos:
     v = Md380Vocoder()
     fw = np.concatenate([np.array(v.decode_frame(bits(f)), float) for f in seq])
     open(SP + '/h.bits', 'w').write('\n'.join(''.join(map(str, bits(f))) for f in seq) + '\n')
-    subprocess.run(['bin/ambe-dec', SP + '/h.bits', SP + '/h.raw'], check=True, capture_output=True)
+    subprocess.run(['bin/mbevoc-dec', SP + '/h.bits', SP + '/h.raw'], check=True, capture_output=True)
     go = np.fromfile(SP + '/h.raw', '<i2').astype(float)
-    line = subprocess.run(['bin/ambe-params', SP + '/h.bits'], capture_output=True, text=True).stdout.splitlines()[-1].split()
+    line = subprocess.run(['bin/mbevoc-params', SP + '/h.bits'], capture_output=True, text=True).stdout.splitlines()[-1].split()
     L = int(line[12]); lm = np.array(list(map(float, line[15:15+L])))
     f0 = W0[b0]
     seg = slice(160*30, 160*38)

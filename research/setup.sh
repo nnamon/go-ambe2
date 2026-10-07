@@ -58,7 +58,7 @@ ref=testdata/matrix/OSR_us_000_0030_8k/ref.raw
 mkdir -p testdata/imbe
 for n in OSR_us_000_0011_8k OSR_us_000_0032_8k OSR_us_000_0057_8k; do
   r=testdata/heldout/$n/ref.raw o=testdata/imbe/$n
-  [ -s $o.goimbe.imb ] || bin/ambe-enc -codec imbe $r $o.goimbe.imb 2>/dev/null
+  [ -s $o.goimbe.imb ] || bin/mbevoc-enc -codec imbe $r $o.goimbe.imb 2>/dev/null
   [ -s $o.op25imbe.imb ] || bin/op25-imbe enc $r $o.op25imbe.imb 2>/dev/null
   for e in goimbe op25imbe; do
     [ -s $o.$e.mbelib.params ] || bin/mbelib-dec -imbe -p $o.$e.imb /dev/null 2> $o.$e.mbelib.params
@@ -76,7 +76,7 @@ mkdir -p testdata/dstar
 [ -s testdata/dstar/frames.neo.dv ] || bin/neo-codec dstar-dv testdata/dstar/frames.dmb testdata/dstar/frames.neo.dv 2>/dev/null
 for n in OSR_us_000_0011_8k OSR_us_000_0032_8k OSR_us_000_0057_8k; do
   o=testdata/dstar/$n.godstar
-  [ -s $o.dmb ] || bin/ambe-enc -codec dstar testdata/heldout/$n/ref.raw $o.dmb 2>/dev/null
+  [ -s $o.dmb ] || bin/mbevoc-enc -codec dstar testdata/heldout/$n/ref.raw $o.dmb 2>/dev/null
   [ -s $o.mbelib.params ] || bin/mbelib-dec -dstar -p $o.dmb /dev/null 2> $o.mbelib.params
 done
 echo "done"

@@ -10,8 +10,8 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/nnamon/go-ambe2/frame"
-	"github.com/nnamon/go-ambe2/internal/codebook"
+	"github.com/nnamon/mbevoc/frame"
+	"github.com/nnamon/mbevoc/internal/codebook"
 )
 
 // TestDequantizeMatchesMbelib replays reference bitstreams through Dequantize

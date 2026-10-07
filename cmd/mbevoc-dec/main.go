@@ -1,4 +1,4 @@
-// Command ambe-dec decodes AMBE+2 3600x2450 frames to 8 kHz mono 16-bit PCM.
+// Command mbevoc-dec decodes AMBE+2 3600x2450 frames to 8 kHz mono 16-bit PCM.
 // The input format follows the file name: *.amb (DSD-style 49-bit frames),
 // *.bits (49 '0'/'1' per line) or *.ambe72 (9-byte FEC-coded DMR frames).
 // The output is raw little-endian PCM, or a .wav file if the name ends in .wav.
@@ -24,14 +24,14 @@ import (
 	"os"
 	"strings"
 
-	ambe "github.com/nnamon/go-ambe2"
-	"github.com/nnamon/go-ambe2/fec"
-	"github.com/nnamon/go-ambe2/frame"
+	"github.com/nnamon/mbevoc/fec"
+	"github.com/nnamon/mbevoc/frame"
+	"github.com/nnamon/mbevoc/p25half"
 )
 
 var (
 	standard = flag.Bool("standard", false, "use the TIA-102.BABA phase model exactly")
-	silGain  = flag.Float64("silence-gain", ambe.SilenceGain, "amplitude factor for silence frames (1 = standard)")
+	silGain  = flag.Float64("silence-gain", p25half.SilenceGain, "amplitude factor for silence frames (1 = standard)")
 	noEnh    = flag.Bool("no-enhance", false, "disable spectral amplitude enhancement")
 	codec    = flag.String("codec", "", "ambe2, imbe or dstar (default: by input file name)")
 	noSmooth = flag.Bool("no-smoothing", false, "IMBE: disable adaptive smoothing")
@@ -41,11 +41,11 @@ var (
 func main() {
 	flag.Parse()
 	if flag.NArg() != 2 {
-		fmt.Fprintln(os.Stderr, "usage: ambe-dec [flags] in.amb|in.bits|in.ambe72|in.imb|in.imbe144|in.dmb|in.dv out.raw|out.wav")
+		fmt.Fprintln(os.Stderr, "usage: mbevoc-dec [flags] in.amb|in.bits|in.ambe72|in.imb|in.imbe144|in.pv|in.dmb|in.dv out.raw|out.wav")
 		os.Exit(2)
 	}
 	if err := run(flag.Arg(0), flag.Arg(1)); err != nil {
-		fmt.Fprintln(os.Stderr, "ambe-dec:", err)
+		fmt.Fprintln(os.Stderr, "mbevoc-dec:", err)
 		os.Exit(1)
 	}
 }
@@ -83,7 +83,7 @@ func run(in, out string) error {
 
 func decodeAMBE2(f *os.File, in string) ([]int16, error) {
 	var err error
-	dec := ambe.NewDecoderConfig(ambe.DecoderConfig{
+	dec := p25half.NewDecoderConfig(p25half.DecoderConfig{
 		StandardSynthesis: *standard,
 		SilenceGain:       *silGain,
 		NoEnhancement:     *noEnh,
@@ -119,7 +119,7 @@ func decodeAMBE2(f *os.File, in string) ([]int16, error) {
 			return nil, err
 		}
 		for i := range frames {
-			if *draft && !ambe.IsTone(&frames[i]) {
+			if *draft && !p25half.IsTone(&frames[i]) {
 				frames[i] = frame.FromDraftLayout(frames[i])
 			}
 			s := dec.Decode(&frames[i])
@@ -146,7 +146,7 @@ func writePCM(out string, pcm []int16) error {
 	if err := w.Flush(); err != nil {
 		return err
 	}
-	fmt.Fprintf(os.Stderr, "decoded %d frames\n", len(pcm)/ambe.FrameSamples)
+	fmt.Fprintf(os.Stderr, "decoded %d frames\n", len(pcm)/p25half.FrameSamples)
 	return o.Close()
 }
 

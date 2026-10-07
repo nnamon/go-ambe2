@@ -1,3 +1,3 @@
-module github.com/nnamon/go-ambe2
+module github.com/nnamon/mbevoc
 
 go 1.24.3

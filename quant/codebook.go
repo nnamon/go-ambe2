@@ -3,7 +3,7 @@ package quant
 import (
 	"math"
 
-	"github.com/nnamon/go-ambe2/internal/codebook"
+	"github.com/nnamon/mbevoc/internal/codebook"
 )
 
 // Codebook is the set of tables that defines a vocoder of the half-rate

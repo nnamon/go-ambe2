@@ -1,12 +1,12 @@
-package ambe
+package p25half
 
 import (
 	"math"
 	"math/rand"
 	"testing"
 
-	"github.com/nnamon/go-ambe2/frame"
-	"github.com/nnamon/go-ambe2/quant"
+	"github.com/nnamon/mbevoc/frame"
+	"github.com/nnamon/mbevoc/quant"
 )
 
 // encodeSignal encodes x (8 kHz samples) and returns the decoded models,

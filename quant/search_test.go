@@ -5,7 +5,7 @@ import (
 	"math/rand"
 	"testing"
 
-	"github.com/nnamon/go-ambe2/internal/codebook"
+	"github.com/nnamon/mbevoc/internal/codebook"
 )
 
 // searchPRBADirect is the direct (unexpanded) form of the searchPRBA

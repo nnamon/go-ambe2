@@ -3,12 +3,12 @@ package halfrate
 import (
 	"math"
 
-	"github.com/nnamon/go-ambe2/frame"
-	"github.com/nnamon/go-ambe2/internal/mbe"
-	"github.com/nnamon/go-ambe2/quant"
+	"github.com/nnamon/mbevoc/frame"
+	"github.com/nnamon/mbevoc/internal/mbe"
+	"github.com/nnamon/mbevoc/quant"
 )
 
-// DecoderConfig tunes the decoder (see ambe.DecoderConfig).
+// DecoderConfig tunes the decoder (see p25half.DecoderConfig).
 type DecoderConfig struct {
 	StandardSynthesis bool
 	SilenceGain       float64 // used as given

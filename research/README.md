@@ -39,7 +39,7 @@ research/setup.sh          # needs git, curl, make, cc/c++, go, python3 (pdftote
 | `tools/server_compat.py` | drives `ambe-server` and DVSwitch's `md380-emu -S` with one UDP client: reply format, identity with the offline tools, cross-decoding scores, round-trip times |
 | `tools/vad_fit.py` | fits the voice activity detector to the MD-380 encoder's silence decisions |
 | `tools/gen_codebook.py`, `gen_imbe_windows.py`, `mbelib_tables.py` | regenerate `../internal/codebook` (from mbelib, ISC) and `../internal/mbe/windows.go` (from the TIA-102.BABA annexes) |
-| `tools/fw_callgraph.py` | scopes the firmware's vocoder code (169 functions, about 50 KB of Thumb-2) |
+| `tools/fw_callgraph.py` | static disassembly of the firmware from the vocoder's entry points, to measure its size (169 functions, about 50 KB of Thumb-2). This is the one tool that looks inside the firmware; nothing from it was used in the library. |
 
 Created by `setup.sh` (git-ignored):
 
@@ -84,7 +84,7 @@ done
 SET=testdata/heldout tools/eval_dec.sh godec op25d
 ```
 
-`eval_go.sh` passes extra arguments to `ambe-enc`, and `eval_dec.sh` takes decoder flags in `$DECFLAGS`. Results land next to each recording as `<tag>.amb` (`.imb`, `.dmb`) and `<tag>.<decoder>.raw`.
+`eval_go.sh` passes extra arguments to `mbevoc-enc`, and `eval_dec.sh` takes decoder flags in `$DECFLAGS`. Results land next to each recording as `<tag>.amb` (`.imb`, `.dmb`) and `<tag>.<decoder>.raw`.
 
 mbelib and mbelib-neo are scored from their float output at unity gain (`mbelib-dec -g 1`, `neo-codec`). Their int16 output applies a gain of 7 and clips: mbelib-neo's clips 3–4% of this corpus's samples, mbelib's about 0.5%.
 

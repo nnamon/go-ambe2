@@ -66,7 +66,7 @@ def fields_to_bits(f, layout=None):
     return b
 
 
-def go_decode_runs(runs, dec="bin/ambe-dec"):
+def go_decode_runs(runs, dec="bin/mbevoc-dec"):
     """Decode each run (a list of 49-bit lists) with a fresh Go decoder; returns
     one float PCM array per run."""
     import subprocess

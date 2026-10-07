@@ -4,7 +4,7 @@
 Both servers are driven by the same small UDP client (md380-emu's protocol:
 320-byte PCM -> 7-byte frame, 7-byte frame -> 320-byte PCM).  For each
 recording this checks reply sizes and the byte-6 convention, compares each
-server's frames with the offline tools' output (go.amb from ambe-enc,
+server's frames with the offline tools' output (go.amb from mbevoc-enc,
 fw.amb from the firmware oracle), cross-decodes every stream on both servers
 and scores the results, and times request round trips.
 
@@ -118,7 +118,7 @@ def main():
             results["go>md380"].append(score(ref, fresh_md380().decode(fg)))
             results["go>go"].append(score(ref, go().decode(fg)))
             print(f"{os.path.basename(d.rstrip('/'))}: {len(fm)} frames; md380-emu frames identical to offline firmware "
-                  f"{same_m}/{len(fm)}, ambe-server frames identical to offline ambe-enc {same_g}/{len(fg)}", flush=True)
+                  f"{same_m}/{len(fm)}, ambe-server frames identical to offline mbevoc-enc {same_g}/{len(fg)}", flush=True)
     finally:
         server.terminate()
         subprocess.run(["docker", "rm", "-f", "dvs-emu"], capture_output=True)

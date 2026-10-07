@@ -8,7 +8,7 @@ import (
 	"os"
 	"strings"
 
-	"github.com/nnamon/go-ambe2/dstar"
+	"github.com/nnamon/mbevoc/dstar"
 )
 
 // decodeDStar decodes D-STAR AMBE frames from *.dmb, *.bits (49 '0'/'1' per

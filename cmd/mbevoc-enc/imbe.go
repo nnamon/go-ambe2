@@ -9,7 +9,7 @@ import (
 	"os"
 	"strings"
 
-	"github.com/nnamon/go-ambe2/imbe"
+	"github.com/nnamon/mbevoc/p25full"
 )
 
 // encodeIMBE encodes PCM from r into IMBE 7200x4400 frames written to out:
@@ -17,11 +17,11 @@ import (
 // *.imbe144 (18 bytes per frame: the 144-bit coded frame, first bit in the MSB)
 // or *.pv (18 bytes per frame: the 142-bit EDACS ProVoice frame).
 func encodeIMBE(r *bufio.Reader, out string, lookahead int) error {
-	cfg := imbe.DefaultConfig()
+	cfg := p25full.DefaultConfig()
 	cfg.Lookahead = lookahead
-	enc := imbe.NewEncoderConfig(cfg)
-	var frames []imbe.Bits
-	var pcm [imbe.FrameSamples]int16
+	enc := p25full.NewEncoderConfig(cfg)
+	var frames []p25full.Bits
+	var pcm [p25full.FrameSamples]int16
 	for {
 		if err := binary.Read(r, binary.LittleEndian, &pcm); err != nil {
 			if errors.Is(err, io.EOF) || errors.Is(err, io.ErrUnexpectedEOF) {
@@ -58,7 +58,7 @@ func encodeIMBE(r *bufio.Reader, out string, lookahead int) error {
 			w.WriteByte('\n')
 		}
 	default:
-		if err := imbe.WriteIMB(w, frames); err != nil {
+		if err := p25full.WriteIMB(w, frames); err != nil {
 			return err
 		}
 	}

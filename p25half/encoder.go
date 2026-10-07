@@ -1,4 +1,4 @@
-// Package ambe is a from-scratch AMBE+2 3600x2450 (DMR / NXDN / P25 Phase 2
+// Package p25half is a from-scratch AMBE+2 3600x2450 (DMR / NXDN / P25 Phase 2
 // half-rate) speech encoder.
 //
 // Analysis follows the MBE analysis of TIA-102.BABA chapter 5 (pitch
@@ -7,13 +7,13 @@
 // half-rate vocoder description of TIA-102.BABA-1 chapter 4.  The output is
 // the 49-bit voice parameter frame (see package frame); FEC and interleaving
 // for a particular air interface are separate.
-package ambe
+package p25half
 
 import (
-	"github.com/nnamon/go-ambe2/frame"
-	"github.com/nnamon/go-ambe2/internal/halfrate"
-	"github.com/nnamon/go-ambe2/internal/mbe"
-	"github.com/nnamon/go-ambe2/quant"
+	"github.com/nnamon/mbevoc/frame"
+	"github.com/nnamon/mbevoc/internal/halfrate"
+	"github.com/nnamon/mbevoc/internal/mbe"
+	"github.com/nnamon/mbevoc/quant"
 )
 
 // FrameSamples is the number of 8 kHz samples per 20 ms frame.

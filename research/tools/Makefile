@@ -17,9 +17,9 @@ all: go $(BIN)/mbelib-dec $(BIN)/op25-enc $(BIN)/op25-imbe $(BIN)/neo-codec $(BI
 # Go CLIs of this module (always rebuilt; go build is incremental).
 go:
 	mkdir -p $(BIN)
-	cd ../.. && go build -o research/bin/ambe-enc ./cmd/ambe-enc && \
-	  go build -o research/bin/ambe-dec ./cmd/ambe-dec && \
-	  go build -o research/bin/ambe-params ./cmd/ambe-params && \
+	cd ../.. && go build -o research/bin/mbevoc-enc ./cmd/mbevoc-enc && \
+	  go build -o research/bin/mbevoc-dec ./cmd/mbevoc-dec && \
+	  go build -o research/bin/mbevoc-params ./cmd/mbevoc-params && \
 	  go build -o research/bin/ambe-server ./cmd/ambe-server
 
 $(BIN)/mbelib-dec: mbelib-dec/main.c common_amb.h
@@ -64,5 +64,5 @@ $(BIN)/fec-xcheck: fec_xcheck/main.c fec_xcheck/rW.inc
 
 clean:
 	rm -rf build fec_xcheck/*.inc $(BIN)/mbelib-dec $(BIN)/op25-enc $(BIN)/op25-imbe $(BIN)/neo-codec $(BIN)/fec-xcheck $(BIN)/hamming-check $(BIN)/hamming-check-neo \
-	  $(BIN)/ambe-enc $(BIN)/ambe-dec $(BIN)/ambe-params $(BIN)/ambe-server
+	  $(BIN)/mbevoc-enc $(BIN)/mbevoc-dec $(BIN)/mbevoc-params $(BIN)/ambe-server
 .PHONY: all go clean

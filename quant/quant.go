@@ -19,8 +19,8 @@ package quant
 import (
 	"math"
 
-	"github.com/nnamon/go-ambe2/frame"
-	"github.com/nnamon/go-ambe2/internal/codebook"
+	"github.com/nnamon/mbevoc/frame"
+	"github.com/nnamon/mbevoc/internal/codebook"
 )
 
 // MaxL is the largest number of harmonics any b0 can signal.
