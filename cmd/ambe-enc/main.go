@@ -7,9 +7,10 @@
 //	*.ambe72 9 bytes per frame: the 72-bit FEC-coded, interleaved frame as
 //	         carried in DMR voice bursts (first transmitted bit = MSB)
 //
-// With -codec imbe (the default for *.imb and *.imbe144 outputs) it encodes
+// With -codec imbe (the default for *.imb, *.imbe144 and *.pv outputs) it encodes
 // IMBE 7200x4400 (P25 Phase 1) frames instead: *.imb (DSD container of 88-bit
-// frames), *.bits (88 '0'/'1' per line) or *.imbe144 (18-byte coded frames).
+// frames), *.bits (88 '0'/'1' per line), *.imbe144 (18-byte coded frames) or
+// *.pv (18-byte EDACS ProVoice frames).
 // With -codec dstar (the default for *.dmb and *.dv) it encodes D-STAR AMBE
 // frames: *.dmb (dsd-fme container), *.bits or *.dv (9-byte voice data).
 //
@@ -56,7 +57,7 @@ func main() {
 	}
 	if *codec == "" {
 		*codec = "ambe2"
-		if o := flag.Arg(1); strings.HasSuffix(o, ".imb") || strings.HasSuffix(o, ".imbe144") {
+		if o := flag.Arg(1); strings.HasSuffix(o, ".imb") || strings.HasSuffix(o, ".imbe144") || strings.HasSuffix(o, ".pv") {
 			*codec = "imbe"
 		} else if strings.HasSuffix(o, ".dmb") || strings.HasSuffix(o, ".dv") {
 			*codec = "dstar"

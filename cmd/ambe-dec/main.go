@@ -6,9 +6,10 @@
 // -draft-layout reads 49-bit frames whose b3 and b4 follow the TIA-102.BABA-1
 // draft's Table 8, as OP25's encoder writes them; see package frame.
 //
-// With -codec imbe (the default for *.imb and *.imbe144 inputs) it decodes
+// With -codec imbe (the default for *.imb, *.imbe144 and *.pv inputs) it decodes
 // IMBE 7200x4400 (P25 Phase 1) frames: *.imb, *.bits (88 '0'/'1' per line) or
-// *.imbe144 (18-byte coded frames, with error correction).  With -codec dstar
+// *.imbe144 or *.pv (18-byte P25 or EDACS ProVoice coded frames, with error
+// correction).  With -codec dstar
 // (the default for *.dmb and *.dv) it decodes D-STAR AMBE frames: *.dmb,
 // *.bits or *.dv (9-byte voice data, with error correction).
 package main
@@ -57,7 +58,7 @@ func run(in, out string) error {
 	defer f.Close()
 	if *codec == "" {
 		*codec = "ambe2"
-		if strings.HasSuffix(in, ".imb") || strings.HasSuffix(in, ".imbe144") {
+		if strings.HasSuffix(in, ".imb") || strings.HasSuffix(in, ".imbe144") || strings.HasSuffix(in, ".pv") {
 			*codec = "imbe"
 		} else if strings.HasSuffix(in, ".dmb") || strings.HasSuffix(in, ".dv") {
 			*codec = "dstar"

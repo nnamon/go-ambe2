@@ -14,7 +14,8 @@ import (
 
 // encodeIMBE encodes PCM from r into IMBE 7200x4400 frames written to out:
 // *.imb (DSD container of 88-bit frames), *.bits (88 '0'/'1' per line) or
-// *.imbe144 (18 bytes per frame: the 144-bit coded frame, first bit in the MSB).
+// *.imbe144 (18 bytes per frame: the 144-bit coded frame, first bit in the MSB)
+// or *.pv (18 bytes per frame: the 142-bit EDACS ProVoice frame).
 func encodeIMBE(r *bufio.Reader, out string, lookahead int) error {
 	cfg := imbe.DefaultConfig()
 	cfg.Lookahead = lookahead
@@ -37,6 +38,12 @@ func encodeIMBE(r *bufio.Reader, out string, lookahead int) error {
 	defer o.Close()
 	w := bufio.NewWriter(o)
 	switch {
+	case strings.HasSuffix(out, ".pv"):
+		for i := range frames {
+			f := frames[i].EncodeProVoice()
+			p := f.Pack()
+			w.Write(p[:])
+		}
 	case strings.HasSuffix(out, ".imbe144"):
 		for i := range frames {
 			f := frames[i].Encode()

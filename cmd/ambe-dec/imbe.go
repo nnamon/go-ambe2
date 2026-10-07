@@ -12,7 +12,8 @@ import (
 )
 
 // decodeIMBE decodes IMBE 7200x4400 frames from *.imb, *.bits (88 '0'/'1'
-// per line) or *.imbe144 (18-byte coded frames) into PCM.
+// per line), *.imbe144 (18-byte coded frames) or *.pv (18-byte EDACS
+// ProVoice frames) into PCM.
 func decodeIMBE(f *os.File, in string) ([]int16, error) {
 	dec := imbe.NewDecoderConfig(imbe.DecoderConfig{
 		StandardSynthesis: *standard,
@@ -21,7 +22,8 @@ func decodeIMBE(f *os.File, in string) ([]int16, error) {
 	})
 	var pcm []int16
 	switch {
-	case strings.HasSuffix(in, ".imbe144"):
+	case strings.HasSuffix(in, ".imbe144"), strings.HasSuffix(in, ".pv"):
+		pv := strings.HasSuffix(in, ".pv")
 		r := bufio.NewReader(f)
 		corrected := 0
 		for {
@@ -32,8 +34,15 @@ func decodeIMBE(f *os.File, in string) ([]int16, error) {
 				}
 				return nil, err
 			}
-			fr := imbe.Unpack(p)
-			s, e := dec.DecodeFrame(&fr)
+			var s [imbe.FrameSamples]int16
+			var e imbe.Errors
+			if pv {
+				fr := imbe.UnpackProVoice(p)
+				s, e = dec.DecodeProVoice(&fr)
+			} else {
+				fr := imbe.Unpack(p)
+				s, e = dec.DecodeFrame(&fr)
+			}
 			corrected += e.Total()
 			pcm = append(pcm, s[:]...)
 		}

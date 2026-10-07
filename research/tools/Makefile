@@ -43,7 +43,7 @@ NEO_SRC := $(wildcard $(NEO)/src/core/*.c $(NEO)/src/ambe/*.c $(NEO)/src/imbe/*.
 $(BIN)/neo-codec: neo-codec/main.c
 	mkdir -p $(BIN) build/neo/mbelib-neo
 	sed 's/@PROJECT_VERSION@/research/' $(NEO)/include/mbelib-neo/version.h.in > build/neo/mbelib-neo/version.h
-	$(CC) $(CFLAGS) -DMBE_STATIC=1 -I$(NEO)/include -Ibuild/neo -I$(NEO)/src/internal -I$(NEO)/src/external/pffft \
+	$(CC) $(CFLAGS) -DMBE_STATIC=1 -I$(NEO)/include -Ibuild/neo -I$(NEO)/src/internal -I$(NEO)/src/external/pffft -I$(DSDFME)/include \
 	  -o $@ neo-codec/main.c $(NEO_SRC) -lm
 
 fec_xcheck/rW.inc: fec_xcheck/gen_inc.py

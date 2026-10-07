@@ -66,6 +66,11 @@ for n in OSR_us_000_0011_8k OSR_us_000_0032_8k OSR_us_000_0057_8k; do
 done
 [ -s testdata/imbe/random.imb ] || .venv/bin/python tools/gen_random_frames.py imb testdata/imbe/random.imb 2000 7
 [ -s testdata/imbe/random.op25cw.txt ] || bin/op25-imbe cw testdata/imbe/random.imb testdata/imbe/random.op25cw.txt 2>/dev/null
+[ -s testdata/imbe/random.imbe144 ] || .venv/bin/python tools/gen_random_frames.py raw18 testdata/imbe/random.imbe144 3000 41
+[ -s testdata/imbe/random.imbe144.neo.imb ] || bin/neo-codec p25-params testdata/imbe/random.imbe144 testdata/imbe/random.imbe144.neo.imb 2>/dev/null
+mkdir -p testdata/provoice
+[ -s testdata/provoice/random.pv ] || .venv/bin/python tools/gen_random_frames.py raw142 testdata/provoice/random.pv 3000 31
+[ -s testdata/provoice/random.neo.imb ] || bin/neo-codec pv-params testdata/provoice/random.pv testdata/provoice/random.neo.imb 2>/dev/null
 mkdir -p testdata/dstar
 [ -s testdata/dstar/frames.dmb ] || .venv/bin/python tools/gen_random_frames.py dmb testdata/dstar/frames.dmb 2000 11
 [ -s testdata/dstar/frames.neo.dv ] || bin/neo-codec dstar-dv testdata/dstar/frames.dmb testdata/dstar/frames.neo.dv 2>/dev/null
