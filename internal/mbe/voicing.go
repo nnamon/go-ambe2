@@ -14,8 +14,13 @@ type Voicing struct {
 	prev  [13]bool // previous frame's decision per band (1..12)
 }
 
-// NewVoicing returns the V/UV state at initialisation.
-func NewVoicing() *Voicing { return &Voicing{Scale: 1, xiMax: 20000} }
+// NewVoicing returns the V/UV state at initialisation, with ξ_max at the
+// floor of eq. 41 (20000).
+func NewVoicing() *Voicing { return NewVoicingFrom(20000) }
+
+// NewVoicingFrom returns the V/UV state with ξ_max initialised to xiMax
+// (TIA-102.BABA Annex A gives 100000).
+func NewVoicingFrom(xiMax float64) *Voicing { return &Voicing{Scale: 1, xiMax: xiMax} }
 
 // Bands returns K, the number of V/UV bands for L harmonics (eq. 34).
 func Bands(L int) int {

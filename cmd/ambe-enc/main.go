@@ -7,6 +7,10 @@
 //	*.ambe72 9 bytes per frame: the 72-bit FEC-coded, interleaved frame as
 //	         carried in DMR voice bursts (first transmitted bit = MSB)
 //
+// With -codec imbe (the default for *.imb and *.imbe144 outputs) it encodes
+// IMBE 7200x4400 (P25 Phase 1) frames instead: *.imb (DSD container of 88-bit
+// frames), *.bits (88 '0'/'1' per line) or *.imbe144 (18-byte coded frames).
+//
 // -draft-layout writes b3 and b4 as the TIA-102.BABA-1 draft's Table 8 places
 // them, for decoders that follow it (mbelib, DSD); see package frame.
 package main
@@ -37,6 +41,7 @@ func main() {
 	flag.Float64Var(&cfg.VoicingScale, "vscale", cfg.VoicingScale, "V/UV threshold scale (0 = 1)")
 	flag.Float64Var(&cfg.WeightPower, "wpow", cfg.WeightPower, "quantizer amplitude-weighting power (0 = unweighted)")
 	trace := flag.Bool("trace", false, "print per-frame analysis to stderr")
+	codec := flag.String("codec", "", "ambe2 or imbe (default: by output file name)")
 	draft := flag.Bool("draft-layout", false, "place b3/b4 bits as the draft standard's Table 8 does (for mbelib/DSD), not as DVSI radios do")
 	flag.Usage = func() {
 		fmt.Fprintf(os.Stderr, "usage: ambe-enc [flags] in.raw|in.wav out.amb|out.bits|out.ambe72\n")
@@ -47,24 +52,57 @@ func main() {
 		flag.Usage()
 		os.Exit(2)
 	}
-	if err := run(cfg, flag.Arg(0), flag.Arg(1), *trace, *draft); err != nil {
+	if *codec == "" {
+		*codec = "ambe2"
+		if o := flag.Arg(1); strings.HasSuffix(o, ".imb") || strings.HasSuffix(o, ".imbe144") {
+			*codec = "imbe"
+		}
+	}
+	var err error
+	switch *codec {
+	case "ambe2":
+		err = run(cfg, flag.Arg(0), flag.Arg(1), *trace, *draft)
+	case "imbe":
+		err = runIMBE(flag.Arg(0), flag.Arg(1), cfg.Lookahead)
+	default:
+		err = fmt.Errorf("unknown codec %q", *codec)
+	}
+	if err != nil {
 		fmt.Fprintln(os.Stderr, "ambe-enc:", err)
 		os.Exit(1)
 	}
 }
 
-func run(cfg ambe.Config, in, out string, trace, draft bool) error {
+func openPCM(in string) (*os.File, *bufio.Reader, error) {
 	f, err := os.Open(in)
+	if err != nil {
+		return nil, nil, err
+	}
+	r := bufio.NewReader(f)
+	if strings.HasSuffix(strings.ToLower(in), ".wav") {
+		if err := skipWAVHeader(r); err != nil {
+			f.Close()
+			return nil, nil, err
+		}
+	}
+	return f, r, nil
+}
+
+func runIMBE(in, out string, lookahead int) error {
+	f, r, err := openPCM(in)
 	if err != nil {
 		return err
 	}
 	defer f.Close()
-	r := bufio.NewReader(f)
-	if strings.HasSuffix(strings.ToLower(in), ".wav") {
-		if err := skipWAVHeader(r); err != nil {
-			return err
-		}
+	return encodeIMBE(r, out, lookahead)
+}
+
+func run(cfg ambe.Config, in, out string, trace, draft bool) error {
+	f, r, err := openPCM(in)
+	if err != nil {
+		return err
 	}
+	defer f.Close()
 	enc := ambe.NewEncoderConfig(cfg)
 	var frames []frame.Bits
 	var pcm [ambe.FrameSamples]int16

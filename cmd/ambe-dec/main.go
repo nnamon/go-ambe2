@@ -5,6 +5,10 @@
 //
 // -draft-layout reads 49-bit frames whose b3 and b4 follow the TIA-102.BABA-1
 // draft's Table 8, as OP25's encoder writes them; see package frame.
+//
+// With -codec imbe (the default for *.imb and *.imbe144 inputs) it decodes
+// IMBE 7200x4400 (P25 Phase 1) frames: *.imb, *.bits (88 '0'/'1' per line) or
+// *.imbe144 (18-byte coded frames, with error correction).
 package main
 
 import (
@@ -26,13 +30,15 @@ var (
 	standard = flag.Bool("standard", false, "use the TIA-102.BABA phase model exactly")
 	silGain  = flag.Float64("silence-gain", ambe.SilenceGain, "amplitude factor for silence frames (1 = standard)")
 	noEnh    = flag.Bool("no-enhance", false, "disable spectral amplitude enhancement")
+	codec    = flag.String("codec", "", "ambe2 or imbe (default: by input file name)")
+	noSmooth = flag.Bool("no-smoothing", false, "IMBE: disable adaptive smoothing")
 	draft    = flag.Bool("draft-layout", false, "49-bit input places b3/b4 bits as the draft standard's Table 8 does (OP25's encoder)")
 )
 
 func main() {
 	flag.Parse()
 	if flag.NArg() != 2 {
-		fmt.Fprintln(os.Stderr, "usage: ambe-dec [flags] in.amb|in.bits|in.ambe72 out.raw|out.wav")
+		fmt.Fprintln(os.Stderr, "usage: ambe-dec [flags] in.amb|in.bits|in.ambe72|in.imb|in.imbe144 out.raw|out.wav")
 		os.Exit(2)
 	}
 	if err := run(flag.Arg(0), flag.Arg(1)); err != nil {
@@ -47,6 +53,29 @@ func run(in, out string) error {
 		return err
 	}
 	defer f.Close()
+	if *codec == "" {
+		*codec = "ambe2"
+		if strings.HasSuffix(in, ".imb") || strings.HasSuffix(in, ".imbe144") {
+			*codec = "imbe"
+		}
+	}
+	var pcm []int16
+	switch *codec {
+	case "imbe":
+		pcm, err = decodeIMBE(f, in)
+	case "ambe2":
+		pcm, err = decodeAMBE2(f, in)
+	default:
+		err = fmt.Errorf("unknown codec %q", *codec)
+	}
+	if err != nil {
+		return err
+	}
+	return writePCM(out, pcm)
+}
+
+func decodeAMBE2(f *os.File, in string) ([]int16, error) {
+	var err error
 	dec := ambe.NewDecoderConfig(ambe.DecoderConfig{
 		StandardSynthesis: *standard,
 		SilenceGain:       *silGain,
@@ -56,7 +85,7 @@ func run(in, out string) error {
 	corrected := 0
 	switch {
 	case strings.HasSuffix(in, ".ambe72") && *draft:
-		return errors.New("-draft-layout applies to .amb and .bits input only")
+		return nil, errors.New("-draft-layout applies to .amb and .bits input only")
 	case strings.HasSuffix(in, ".ambe72"):
 		r := bufio.NewReader(f)
 		for {
@@ -65,7 +94,7 @@ func run(in, out string) error {
 				if errors.Is(err, io.EOF) {
 					break
 				}
-				return err
+				return nil, err
 			}
 			c := fec.Unpack(b)
 			s, e := dec.Decode72(&c)
@@ -80,7 +109,7 @@ func run(in, out string) error {
 			frames, err = frame.ReadAMB(f)
 		}
 		if err != nil {
-			return err
+			return nil, err
 		}
 		for i := range frames {
 			if *draft && !ambe.IsTone(&frames[i]) {
@@ -90,6 +119,11 @@ func run(in, out string) error {
 			pcm = append(pcm, s[:]...)
 		}
 	}
+	fmt.Fprintf(os.Stderr, "%d bits corrected; ", corrected)
+	return pcm, nil
+}
+
+func writePCM(out string, pcm []int16) error {
 	o, err := os.Create(out)
 	if err != nil {
 		return err
@@ -105,7 +139,7 @@ func run(in, out string) error {
 	if err := w.Flush(); err != nil {
 		return err
 	}
-	fmt.Fprintf(os.Stderr, "decoded %d frames (%d bits corrected)\n", len(pcm)/ambe.FrameSamples, corrected)
+	fmt.Fprintf(os.Stderr, "decoded %d frames\n", len(pcm)/ambe.FrameSamples)
 	return o.Close()
 }
 

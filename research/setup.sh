@@ -52,4 +52,15 @@ echo "== cross-check data for the Go tests"
 ref=testdata/matrix/OSR_us_000_0030_8k/ref.raw
 [ -s testdata/speech/oracle.amb ] || .venv/bin/python oracle/unicorn/md380_uc.py enc $ref testdata/speech/oracle.amb
 [ -s testdata/speech/oracle.bits ] || .venv/bin/python oracle/unicorn/md380_uc.py enc $ref testdata/speech/oracle.bits
+mkdir -p testdata/imbe
+for n in OSR_us_000_0011_8k OSR_us_000_0032_8k OSR_us_000_0057_8k; do
+  r=testdata/heldout/$n/ref.raw o=testdata/imbe/$n
+  [ -s $o.goimbe.imb ] || bin/ambe-enc -codec imbe $r $o.goimbe.imb 2>/dev/null
+  [ -s $o.op25imbe.imb ] || bin/op25-imbe enc $r $o.op25imbe.imb 2>/dev/null
+  for e in goimbe op25imbe; do
+    [ -s $o.$e.mbelib.params ] || bin/mbelib-dec -imbe -p $o.$e.imb /dev/null 2> $o.$e.mbelib.params
+  done
+done
+[ -s testdata/imbe/random.imb ] || .venv/bin/python tools/gen_random_imb.py testdata/imbe/random.imb 2000 7
+[ -s testdata/imbe/random.op25cw.txt ] || bin/op25-imbe cw testdata/imbe/random.imb testdata/imbe/random.op25cw.txt 2>/dev/null
 echo "done"

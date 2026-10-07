@@ -62,28 +62,6 @@ func TestPublishedVectors(t *testing.T) {
 	}
 }
 
-func TestGolay(t *testing.T) {
-	for d := uint32(0); d < 4096; d++ {
-		c := golay23(d)
-		if syndrome(c) != 0 {
-			t.Fatalf("codeword %x has nonzero syndrome", c)
-		}
-		if parity(golay24(d)) != 0 {
-			t.Fatalf("[24,12] codeword %x has odd weight", golay24(d))
-		}
-	}
-	// Minimum distance 7: every nonzero codeword has weight >= 7.
-	for d := uint32(1); d < 4096; d++ {
-		w := 0
-		for v := golay23(d); v != 0; v &= v - 1 {
-			w++
-		}
-		if w < 7 {
-			t.Fatalf("codeword weight %d < 7", w)
-		}
-	}
-}
-
 func TestRoundTripAndCorrection(t *testing.T) {
 	r := rand.New(rand.NewSource(5))
 	// positions of c0 and c1 bits in the interleaved frame

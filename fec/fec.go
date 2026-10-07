@@ -10,105 +10,19 @@
 // AMBE+2 interleave).  The 49-bit order of package frame is u0|u1|u2|u3.
 package fec
 
-import "github.com/nnamon/go-ambe2/frame"
+import (
+	"github.com/nnamon/go-ambe2/frame"
+	"github.com/nnamon/go-ambe2/internal/ecc"
+)
 
 // Bits72 is a 72-bit frame in transmission order (bit 0 is sent first).
 type Bits72 [72]uint8
 
-// golayPoly is g(x) = x^11 + x^10 + x^6 + x^5 + x^4 + x^2 + 1.
-const golayPoly = 0xC75
-
-// golay23 returns the systematic [23,12] codeword of 12-bit data:
-// data in bits 22..11, parity in bits 10..0.
-func golay23(data uint32) uint32 {
-	r := data << 11
-	for i := 22; i >= 11; i-- {
-		if r&(1<<uint(i)) != 0 {
-			r ^= golayPoly << uint(i-11)
-		}
-	}
-	return data<<11 | r
-}
-
-// golay24 appends an even-parity bit (LSB) to the [23,12] codeword.
-func golay24(data uint32) uint32 {
-	c := golay23(data)
-	return c<<1 | parity(c)
-}
-
-func parity(v uint32) uint32 {
-	v ^= v >> 16
-	v ^= v >> 8
-	v ^= v >> 4
-	v ^= v >> 2
-	v ^= v >> 1
-	return v & 1
-}
-
-// syndromeErr maps each [23,12] syndrome to its minimum-weight error pattern
-// (the code is perfect: every syndrome is a pattern of weight <= 3).
-var syndromeErr [2048]uint32
-
-func syndrome(c uint32) uint32 {
-	r := c
-	for i := 22; i >= 11; i-- {
-		if r&(1<<uint(i)) != 0 {
-			r ^= golayPoly << uint(i-11)
-		}
-	}
-	return r & 0x7FF
-}
-
-func init() {
-	seen := 0
-	set := func(e uint32) {
-		s := syndrome(e)
-		if s != 0 && syndromeErr[s] == 0 {
-			syndromeErr[s] = e
-			seen++
-		}
-	}
-	for i := 0; i < 23; i++ {
-		set(1 << uint(i))
-	}
-	for i := 0; i < 23; i++ {
-		for j := i + 1; j < 23; j++ {
-			set(1<<uint(i) | 1<<uint(j))
-		}
-	}
-	for i := 0; i < 23; i++ {
-		for j := i + 1; j < 23; j++ {
-			for k := j + 1; k < 23; k++ {
-				set(1<<uint(i) | 1<<uint(j) | 1<<uint(k))
-			}
-		}
-	}
-	if seen != 2047 {
-		panic("fec: Golay syndrome table incomplete")
-	}
-}
-
-// decode23 corrects up to three errors in a [23,12] word, returning the data
-// and the number of bits corrected.
-func decode23(c uint32) (uint32, int) {
-	e := syndromeErr[syndrome(c)]
-	n := 0
-	for v := e; v != 0; v &= v - 1 {
-		n++
-	}
-	return ((c ^ e) >> 11) & 0xFFF, n
-}
-
 // pnMask returns the 23-bit modulation vector m1 for u0 (BABA-1 eq. 52-54),
 // with m1's first element in bit 22 (the MSB of c1).
 func pnMask(u0 uint32) uint32 {
-	pr := 16 * u0
-	var m uint32
-	for n := 1; n <= 23; n++ {
-		pr = (173*pr + 13849) % 65536
-		m = m<<1 | pr>>15
-	}
-	return m
+	p := ecc.NewPN(u0)
+	return p.Mask(23)
 }
 
 // interleave[s] gives the (vector, bit) carried by bit 1 and bit 0 of dibit s.
@@ -152,7 +66,7 @@ func join(u [4]uint32) (b frame.Bits) {
 // Encode adds FEC and interleaving to a 49-bit frame.
 func Encode(b *frame.Bits) Bits72 {
 	u := split(b)
-	c := [4]uint32{golay24(u[0]), golay23(u[1]) ^ pnMask(u[0]), u[2], u[3]}
+	c := [4]uint32{ecc.Golay24(u[0]), ecc.Golay23(u[1]) ^ pnMask(u[0]), u[2], u[3]}
 	var out Bits72
 	for s, d := range interleave {
 		out[2*s] = uint8(c[d[0][0]]>>d[0][1]) & 1
@@ -181,9 +95,9 @@ func Decode(in *Bits72) (frame.Bits, Errors) {
 	}
 	var e Errors
 	var u [4]uint32
-	u[0], e.C0 = decode23(c[0] >> 1)
-	e.C0Parity = parity(golay23(u[0]))^(c[0]&1) != 0
-	u[1], e.C1 = decode23(c[1] ^ pnMask(u[0]))
+	u[0], e.C0 = ecc.Decode23(c[0] >> 1)
+	e.C0Parity = ecc.Parity(ecc.Golay23(u[0]))^(c[0]&1) != 0
+	u[1], e.C1 = ecc.Decode23(c[1] ^ pnMask(u[0]))
 	u[2], u[3] = c[2], c[3]
 	return join(u), e
 }

@@ -10,7 +10,7 @@ CXXFLAGS ?= -O2 -g -w -std=c++17
 MBELIB_SRC := $(MBELIB)/mbelib.c $(MBELIB)/ambe3600x2450.c $(MBELIB)/ambe3600x2400.c \
               $(MBELIB)/imbe7200x4400.c $(MBELIB)/imbe7100x4400.c $(MBELIB)/ecc.c
 
-all: go $(BIN)/mbelib-dec $(BIN)/op25-enc $(BIN)/fec-xcheck
+all: go $(BIN)/mbelib-dec $(BIN)/op25-enc $(BIN)/op25-imbe $(BIN)/fec-xcheck
 
 # Go CLIs of this module (always rebuilt; go build is incremental).
 go:
@@ -32,6 +32,10 @@ $(BIN)/op25-enc: op25-enc/main.cc common_amb.h
 	for f in $(OP25_C); do $(CC) $(CFLAGS) -I$(OP25) -c $$f -o build/op25/$$(basename $$f).o || exit 1; done
 	$(CXX) $(CXXFLAGS) -I$(OP25) -o $@ op25-enc/main.cc $(OP25_CXX) build/op25/*.o -lm
 
+$(BIN)/op25-imbe: op25-imbe/main.cc
+	mkdir -p $(BIN)
+	$(CXX) $(CXXFLAGS) -I$(OP25) -o $@ op25-imbe/main.cc $(wildcard $(OP25)/imbe_vocoder/*.cc) -lm
+
 fec_xcheck/rW.inc: fec_xcheck/gen_inc.py
 	python3 fec_xcheck/gen_inc.py $(DSDFME)/include/dmr_const.h fec_xcheck
 
@@ -40,6 +44,6 @@ $(BIN)/fec-xcheck: fec_xcheck/main.c fec_xcheck/rW.inc
 	$(CC) $(CFLAGS) -I$(MBELIB) -Ifec_xcheck -o $@ fec_xcheck/main.c $(MBELIB_SRC) -lm
 
 clean:
-	rm -rf build fec_xcheck/*.inc $(BIN)/mbelib-dec $(BIN)/op25-enc $(BIN)/fec-xcheck \
+	rm -rf build fec_xcheck/*.inc $(BIN)/mbelib-dec $(BIN)/op25-enc $(BIN)/op25-imbe $(BIN)/fec-xcheck \
 	  $(BIN)/ambe-enc $(BIN)/ambe-dec $(BIN)/ambe-params $(BIN)/ambe-server
 .PHONY: all go clean
