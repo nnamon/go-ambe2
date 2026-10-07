@@ -196,7 +196,7 @@ func TestUDP(t *testing.T) {
 		t.Fatal(err)
 	}
 	done := make(chan error, 1)
-	go func() { done <- serve(conn, newServer(testConfig()), false) }()
+	go func() { done <- serve(conn, newServer(testConfig()), loopConfig{}) }()
 	defer func() {
 		conn.Close()
 		if err := <-done; err != nil {

@@ -23,20 +23,25 @@ type config struct {
 	idle       time.Duration // per-client state is dropped after this long unused
 	maxClients int           // per-client mode: least recently used is evicted beyond this
 	reply72    bool          // answer PCM with 9-byte 72-bit frames instead of 7 bytes
+	resetGap   time.Duration // a fresh encoder (decoder) after this long without encoding (decoding); 0: never
 	encoder    p25half.Config
 	decoder    p25half.DecoderConfig
 }
 
 // codec is the vocoder state of one stream.
 type codec struct {
-	enc  *p25half.Encoder
-	dec  *p25half.Decoder
-	used time.Time
+	enc              *p25half.Encoder
+	dec              *p25half.Decoder
+	used             time.Time
+	lastEnc, lastDec time.Time // last encode and decode request (zero: none yet)
 }
 
 // stats counts what the server has done.
 type stats struct {
 	encoded, decoded, decoded72, ignored, clients, evicted uint64
+
+	resets                 uint64    // encoders and decoders replaced after resetGap
+	lastEncode, lastDecode time.Time // last request of each kind, any client (zero: none yet)
 }
 
 // server implements the request/response protocol independently of sockets.
@@ -48,10 +53,12 @@ type server struct {
 	clients   map[string]*codec
 	lastSweep time.Time
 	stats     stats
+	started   time.Time
+	encodeUs  latency // time to answer encode requests
 }
 
 func newServer(cfg config) *server {
-	return &server{cfg: cfg, now: time.Now, seen: map[string]bool{}, clients: map[string]*codec{}}
+	return &server{cfg: cfg, now: time.Now, started: time.Now(), seen: map[string]bool{}, clients: map[string]*codec{}}
 }
 
 func (s *server) newCodec() *codec {
@@ -60,8 +67,7 @@ func (s *server) newCodec() *codec {
 
 // codecFor returns the state for a client: the single shared state (as
 // md380-emu has), or the client's own in per-client mode.
-func (s *server) codecFor(client string) *codec {
-	now := s.now()
+func (s *server) codecFor(client string, now time.Time) *codec {
 	if !s.cfg.perClient {
 		if s.shared == nil {
 			s.shared = s.newCodec()
@@ -100,6 +106,35 @@ func (s *server) sweep(now time.Time) {
 	}
 }
 
+// stale reports whether a stream side last used at last has been idle for
+// longer than the reset gap, so the next request starts a new transmission.
+func (s *server) stale(last, now time.Time) bool {
+	return s.cfg.resetGap > 0 && !last.IsZero() && now.Sub(last) > s.cfg.resetGap
+}
+
+// encoderFor returns the client's encoder, replacing it with a fresh one
+// when the client has not encoded for longer than the reset gap.
+func (s *server) encoderFor(client string, now time.Time) *p25half.Encoder {
+	c := s.codecFor(client, now)
+	if s.stale(c.lastEnc, now) {
+		c.enc = p25half.NewEncoderConfig(s.cfg.encoder)
+		s.stats.resets++
+	}
+	c.lastEnc, s.stats.lastEncode = now, now
+	return c.enc
+}
+
+// decoderFor is encoderFor for the decoder.
+func (s *server) decoderFor(client string, now time.Time) *p25half.Decoder {
+	c := s.codecFor(client, now)
+	if s.stale(c.lastDec, now) {
+		c.dec = p25half.NewDecoderConfig(s.cfg.decoder)
+		s.stats.resets++
+	}
+	c.lastDec, s.stats.lastDecode = now, now
+	return c.dec
+}
+
 func (s *server) evictOldest() {
 	keys := make([]string, 0, len(s.clients))
 	for k := range s.clients {
@@ -117,33 +152,39 @@ func (s *server) evictOldest() {
 //	7 bytes (49-bit frame)   -> decode -> 320 bytes PCM
 //	9 bytes (72-bit frame)   -> FEC decode, decode -> 320 bytes PCM (extension)
 func (s *server) handle(pkt []byte, client string) []byte {
+	now := s.now()
 	switch len(pkt) {
 	case pcmBytes:
+		start := time.Now()
 		var pcm [p25half.FrameSamples]int16
 		for i := range pcm {
 			pcm[i] = int16(binary.LittleEndian.Uint16(pkt[2*i:]))
 		}
-		b := s.codecFor(client).enc.Encode(&pcm)
+		b := s.encoderFor(client, now).Encode(&pcm)
 		s.stats.encoded++
+		var reply []byte
 		if s.cfg.reply72 {
 			c := fec.Encode(&b)
 			p := fec.Pack(&c)
-			return p[:]
+			reply = p[:]
+		} else {
+			p := b.Pack7()
+			reply = p[:]
 		}
-		p := b.Pack7()
-		return p[:]
+		s.encodeUs.add(time.Since(start))
+		return reply
 	case ambe49Size:
 		var p [ambe49Size]byte
 		copy(p[:], pkt)
 		b := frame.Unpack7(p)
 		s.stats.decoded++
-		return pcmBytesOf(s.codecFor(client).dec.Decode(&b))
+		return pcmBytesOf(s.decoderFor(client, now).Decode(&b))
 	case ambe72Size:
 		var p [ambe72Size]byte
 		copy(p[:], pkt)
 		c := fec.Unpack(p)
 		s.stats.decoded72++
-		pcm, _ := s.codecFor(client).dec.Decode72(&c)
+		pcm, _ := s.decoderFor(client, now).Decode72(&c)
 		return pcmBytesOf(pcm)
 	}
 	s.stats.ignored++

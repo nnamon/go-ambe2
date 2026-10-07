@@ -339,6 +339,8 @@ One UDP datagram carries one 20 ms frame, and requests are dispatched on datagra
 | `-silence` | `true` | send silence frames for non-speech input |
 | `-fec` | `false` | reply to PCM with 9-byte FEC-coded 72-bit frames instead of 7-byte frames |
 | `-standard`, `-silence-gain` | off, `0.228` | decoder synthesis options (see `DecoderConfig`) |
+| `-reset-gap` | `0` (off) | start a fresh encoder when encoding resumes after a gap longer than this, and a fresh decoder when decoding does; each side on its own, and per client with `-state client`. `200ms` suits Analog_Bridge (see Deploying). |
+| `-stats-file`, `-stats-interval` | none, `10s` | write a JSON status file this often (see Status file) |
 | `-v` | off | log new clients and per-minute counts |
 
 `-state client` keys state on the client's source port. A client that opens a new socket for every frame would get a fresh encoder each time, so use the default `shared` mode for such clients.
@@ -359,6 +361,13 @@ useEmulator = true
 emulatorAddress = 127.0.0.1:2470
 ```
 
+Run the server with `-reset-gap 200ms` behind Analog_Bridge. During a transmission Analog_Bridge sends a request every 20 ms, from one socket for both directions, and at unkey it simply stops. Without a reset, two things carry over into the next transmission, which may be minutes later and a different speaker:
+
+* the last 60 ms of each over (40 ms with `-lookahead 1`), held in the encoder's look-ahead, would be sent at the start of the next over;
+* both directions would start the next over with the previous one's state.
+
+With `-reset-gap 200ms`, a request that follows more than 200 ms without one of its kind gets a fresh encoder (or decoder). The encoder and decoder are reset independently, so decoding in the middle of a transmission never resets the encoder. The end of an over still cannot be sent, since the client sends nothing after it; `-lookahead 1` shortens it to 40 ms.
+
 **Docker:** it has to listen on all interfaces inside the container.
 
 ```dockerfile
@@ -371,6 +380,45 @@ ENTRYPOINT ["/ambe-server", "-host", "0.0.0.0", "-S", "2470"]
 ```
 
 Run it with `docker run -p 127.0.0.1:2470:2470/udp …` so the port is only reachable from the host.
+
+### Status file
+
+With `-stats-file /run/ambe-server/stats.json`, the server writes its status at start-up, every `-stats-interval` (with or without traffic) and at shutdown. It writes to a temporary file in the same directory and renames it into place, so readers never see a partial file. If the first write fails, the server does not start. Under systemd, `RuntimeDirectory=ambe-server` in the unit creates `/run/ambe-server` for it.
+
+```json
+{
+  "version": "e0e33cc",
+  "started": 1791357595.737,
+  "updated": 1791357599.739,
+  "encoded": 100,
+  "decoded": 100,
+  "decoded72": 0,
+  "ignored": 0,
+  "clients_seen": 1,
+  "client_states": 0,
+  "last_encode": 1791357599.182,
+  "last_decode": 1791357599.183,
+  "encode_us_max": 1354,
+  "encode_us_p99": 1346,
+  "lookahead": 2,
+  "state": "shared",
+  "resets": 2
+}
+```
+
+| field | meaning |
+|---|---|
+| `version` | the build's commit (`-dirty` if built with uncommitted changes), or its module version |
+| `started`, `updated` | Unix times of start-up and of this write |
+| `encoded`, `decoded`, `decoded72`, `ignored` | requests since start-up: PCM encoded, 7-byte and 9-byte frames decoded, datagrams of other lengths |
+| `clients_seen` | client addresses seen. In `-state client` mode, an address that returns after its state expired counts again. In shared mode, counting stops at 1,024. |
+| `client_states` | per-client states held (0 in shared mode) |
+| `last_encode`, `last_decode` | Unix time of the last encode and decode request; `null` before the first |
+| `encode_us_max`, `encode_us_p99` | time to answer an encode request since start-up, in µs: the maximum, and the 99th percentile (exact to 1 µs, capped at 20,000) |
+| `lookahead`, `state` | the `-lookahead` and `-state` settings |
+| `resets` | encoders and decoders replaced by `-reset-gap` |
+
+Request times are wall-clock times on the host, including CPU frequency changes. On an Apple M4, 500 frames sent back to back had a p99 of 292 µs. The same frames sent every 20 ms, as a bridge sends them, had a p99 of 1,896 µs, because the mostly idle CPU runs slower.
 
 ### Verified against md380-emu
 
@@ -409,7 +457,8 @@ As shipped, DVSwitch's md380-emu crashed with a segmentation fault on its first 
 * `Decode72` against `Decode`, and the repeat-then-mute sequence;
 * tone frames: frequencies, levels and ID 255;
 * the silence-frame level, and decoder determinism;
-* `ambe-server`: the protocol replies, both state modes, idle expiry and eviction, and a real UDP round trip;
+* `ambe-server`: the protocol replies, both state modes, idle expiry and eviction, and a real UDP round trip; `-reset-gap` (a resumed transmission matches a fresh encoder or decoder, each side is reset independently, per client, and only for a gap longer than the setting); the status file (fields, percentiles, atomic replacement, and updates while idle);
+* encoders running in parallel, which share read-only tables (`go test -race`);
 * Golay and Hamming codes against the generator matrices printed in TIA-102.BABA, and soft decoding against hard;
 * IMBE: bit allocation and prioritisation against the chapter 10 example, frame coding with injected errors, `.imb` files, pitch, level, voicing and sync through the codec, repeats and muting under sustained corruption;
 * D-STAR: frame coding with injected errors, the null AMBE frame, `.dmb` files, and the codec loop;

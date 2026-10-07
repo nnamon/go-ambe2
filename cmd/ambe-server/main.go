@@ -16,6 +16,11 @@
 // Usage:
 //
 //	ambe-server [-S 2470] [-host 127.0.0.1] [-state shared|client] [flags]
+//
+// -reset-gap starts a fresh encoder (decoder) when encoding (decoding)
+// resumes after a longer gap, so one transmission's buffered audio and
+// decoder state do not carry into the next.  -stats-file writes a JSON
+// status file every -stats-interval.
 package main
 
 import (
@@ -44,6 +49,9 @@ func main() {
 	silence := flag.Bool("silence", true, "send silence frames for non-speech input")
 	standard := flag.Bool("standard", false, "decode with the TIA-102.BABA phase model exactly")
 	silGain := flag.Float64("silence-gain", p25half.SilenceGain, "decoder amplitude factor for silence frames (1 = standard)")
+	resetGap := flag.Duration("reset-gap", 0, "start a fresh encoder (decoder) when encoding (decoding) resumes after a gap longer than this, e.g. 200ms; 0 = never")
+	statsFile := flag.String("stats-file", "", "write a JSON status file here (atomically), e.g. /run/ambe-server/stats.json")
+	statsInterval := flag.Duration("stats-interval", 10*time.Second, "with -stats-file: how often to rewrite it")
 	verbose := flag.Bool("v", false, "log clients and per-minute statistics")
 	flag.Usage = func() {
 		fmt.Fprintf(os.Stderr, "usage: ambe-server [flags]\n\nA drop-in replacement for md380-emu -S (UDP AMBE+2 vocoder server).\n\n")
@@ -57,6 +65,12 @@ func main() {
 	if *state != "shared" && *state != "client" {
 		log.Fatalf("ambe-server: -state must be shared or client, not %q", *state)
 	}
+	if *resetGap < 0 {
+		log.Fatalf("ambe-server: -reset-gap must not be negative")
+	}
+	if *statsFile != "" && *statsInterval <= 0 {
+		log.Fatalf("ambe-server: -stats-interval must be positive")
+	}
 
 	enc := p25half.DefaultConfig()
 	enc.Lookahead = *lookahead
@@ -66,6 +80,7 @@ func main() {
 		idle:       *idle,
 		maxClients: *maxClients,
 		reply72:    *reply72,
+		resetGap:   *resetGap,
 		encoder:    enc,
 		decoder:    p25half.DecoderConfig{StandardSynthesis: *standard, SilenceGain: *silGain},
 	}
@@ -78,7 +93,22 @@ func main() {
 	if err != nil {
 		log.Fatalf("ambe-server: %v", err)
 	}
-	log.Printf("ambe-server: listening on udp %s (state %s, look-ahead %d)", conn.LocalAddr(), *state, *lookahead)
+	version := buildVersion()
+	log.Printf("ambe-server %s: listening on udp %s (state %s, look-ahead %d, reset gap %v)", version, conn.LocalAddr(), *state, *lookahead, *resetGap)
+
+	s := newServer(cfg)
+	p25half.NewEncoderConfig(enc) // builds the encoders' shared tables now, not on the first request
+	loop := loopConfig{verbose: *verbose}
+	var sw *statusWriter
+	if *statsFile != "" {
+		// The first write is synchronous, so a bad path fails at start-up.
+		if err := writeStatus(*statsFile, s.status(time.Now(), version)); err != nil {
+			log.Fatalf("ambe-server: status file: %v", err)
+		}
+		sw = startStatusWriter(*statsFile)
+		loop.statusInterval = *statsInterval
+		loop.status = func(now time.Time) { sw.submit(s.status(now, version)) }
+	}
 
 	sig := make(chan os.Signal, 1)
 	signal.Notify(sig, syscall.SIGINT, syscall.SIGTERM)
@@ -88,7 +118,14 @@ func main() {
 		conn.Close()
 	}()
 
-	if err := serve(conn, newServer(cfg), *verbose); err != nil {
+	err = serve(conn, s, loop)
+	if sw != nil {
+		sw.close()
+		if werr := writeStatus(*statsFile, s.status(time.Now(), version)); werr != nil {
+			log.Printf("ambe-server: status file: %v", werr)
+		}
+	}
+	if err != nil {
 		log.Fatalf("ambe-server: %v", err)
 	}
 }
@@ -101,39 +138,60 @@ func listen(addr string) (*net.UDPConn, error) {
 	return net.ListenUDP("udp", ua)
 }
 
+// loopConfig holds the socket loop's options.
+type loopConfig struct {
+	verbose        bool
+	statusInterval time.Duration       // > 0: call status this often, with or without traffic
+	status         func(now time.Time) // called on the serving goroutine
+}
+
 // serve answers datagrams until conn is closed.  Requests are handled in
 // arrival order on one goroutine, so each client's replies come back in the
-// order of its requests.
-func serve(conn *net.UDPConn, s *server, verbose bool) error {
+// order of its requests.  Status snapshots are taken on the same goroutine;
+// a read deadline wakes it when no datagrams arrive.
+func serve(conn *net.UDPConn, s *server, cfg loopConfig) error {
 	buf := make([]byte, 2048)
 	lastLog := time.Now()
 	var logged stats
+	var nextStatus time.Time
+	if cfg.statusInterval > 0 {
+		nextStatus = time.Now().Add(cfg.statusInterval)
+		conn.SetReadDeadline(nextStatus)
+	}
 	for {
 		n, from, err := conn.ReadFromUDP(buf)
-		if err != nil {
-			if errors.Is(err, net.ErrClosed) {
-				return nil
+		switch {
+		case err == nil:
+			known := s.stats.clients
+			reply := s.handle(buf[:n], from.String())
+			if reply != nil {
+				if _, err := conn.WriteToUDP(reply, from); err != nil && cfg.verbose {
+					log.Printf("ambe-server: reply to %v: %v", from, err)
+				}
 			}
-			return err
-		}
-		known := s.stats.clients
-		reply := s.handle(buf[:n], from.String())
-		if reply != nil {
-			if _, err := conn.WriteToUDP(reply, from); err != nil && verbose {
-				log.Printf("ambe-server: reply to %v: %v", from, err)
-			}
-		}
-		if verbose {
-			if s.stats.clients != known {
+			if cfg.verbose && s.stats.clients != known {
 				log.Printf("ambe-server: new client %v", from)
 			}
-			if time.Since(lastLog) >= time.Minute {
-				st := s.stats
-				log.Printf("ambe-server: last minute: %d encoded, %d decoded, %d decoded (72-bit), %d ignored; %d clients seen, %d client states held",
-					st.encoded-logged.encoded, st.decoded-logged.decoded, st.decoded72-logged.decoded72,
-					st.ignored-logged.ignored, st.clients, len(s.clients))
-				logged, lastLog = st, time.Now()
+		case errors.Is(err, os.ErrDeadlineExceeded):
+		case errors.Is(err, net.ErrClosed):
+			return nil
+		default:
+			return err
+		}
+		now := time.Now()
+		if cfg.statusInterval > 0 && !now.Before(nextStatus) {
+			cfg.status(now)
+			for !nextStatus.After(now) {
+				nextStatus = nextStatus.Add(cfg.statusInterval)
 			}
+			conn.SetReadDeadline(nextStatus)
+		}
+		if cfg.verbose && now.Sub(lastLog) >= time.Minute {
+			st := s.stats
+			log.Printf("ambe-server: last minute: %d encoded, %d decoded, %d decoded (72-bit), %d ignored, %d resets; %d clients seen, %d client states held",
+				st.encoded-logged.encoded, st.decoded-logged.decoded, st.decoded72-logged.decoded72,
+				st.ignored-logged.ignored, st.resets-logged.resets, st.clients, len(s.clients))
+			logged, lastLog = st, now
 		}
 	}
 }
