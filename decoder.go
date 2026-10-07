@@ -95,3 +95,11 @@ func (d *Decoder) decode(b *frame.Bits, bad bool) [FrameSamples]int16 {
 	}
 	return d.e.Frame(p, kind, bad)
 }
+
+// Decode72Soft decodes a frame of soft decisions (fec.DecodeSoft) with the
+// error handling of Decode72.
+func (d *Decoder) Decode72Soft(s *fec.Soft72) ([FrameSamples]int16, fec.Errors) {
+	b, e := fec.DecodeSoft(s)
+	bad := d.e.Errors(e.C0, e.C1, false)
+	return d.decode(&b, bad), e
+}

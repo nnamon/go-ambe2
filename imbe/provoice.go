@@ -167,17 +167,21 @@ func (f *ProVoiceFrame) Decode() (Bits, Errors) {
 			p++
 		}
 	}
+	return fromProVoiceOrder(&d), e
+}
+
+// fromProVoiceOrder rearranges 88 bits in ProVoice order into P25 order.
+func fromProVoiceOrder(d *[88]uint8) (b Bits) {
 	// b0 sits at ProVoice positions 1..6, 86 and 87.
 	var b0 uint16
 	for i := 1; i <= 6; i++ {
 		b0 = b0<<1 | uint16(d[i])
 	}
 	b0 = b0<<2 | uint16(d[86])<<1 | uint16(d[87])
-	var b Bits
 	for i, k := range proVoiceOrder(bandsOfB0(b0)) {
 		b[i] = d[k]
 	}
-	return b, e
+	return b
 }
 
 // DecodeProVoice decodes a 142-bit ProVoice frame: error correction, then

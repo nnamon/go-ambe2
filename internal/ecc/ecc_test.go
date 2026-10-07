@@ -97,3 +97,79 @@ func TestPN(t *testing.T) {
 		}
 	}
 }
+
+// TestSoftMatchesHardWhenConfident checks that with every bit equally
+// confident, soft ML decoding agrees with hard decoding within the codes'
+// correction capability, and that it corrects more when the errors are the
+// least confident bits.
+func TestSoftMatchesHardWhenConfident(t *testing.T) {
+	r := rand.New(rand.NewSource(5))
+	llr := make([]float64, 24)
+	for n := 0; n < 3000; n++ {
+		d := uint32(r.Intn(4096))
+		c := Golay23(d)
+		e := uint32(0)
+		for k := r.Intn(4); k > 0; {
+			b := uint32(1) << uint(r.Intn(23))
+			if e&b == 0 {
+				e |= b
+				k--
+			}
+		}
+		for i := 0; i < 23; i++ {
+			llr[i] = 4
+			if (c^e)>>uint(i)&1 == 1 {
+				llr[i] = -4
+			}
+		}
+		got, f := Decode23Soft(llr)
+		if got != d || f != popcount(e) {
+			t.Fatalf("golay: data %x errors %x: got %x, %d flips", d, e, got, f)
+		}
+		// Five errors (beyond hard decoding), each on a low-confidence bit.
+		e = 0
+		for k := 5; k > 0; {
+			b := uint32(1) << uint(r.Intn(23))
+			if e&b == 0 {
+				e |= b
+				k--
+			}
+		}
+		for i := 0; i < 23; i++ {
+			v := 4.0
+			if e>>uint(i)&1 == 1 {
+				v = 0.5
+			}
+			if (c^e)>>uint(i)&1 == 1 {
+				v = -v
+			}
+			llr[i] = v
+		}
+		if got, _ := Decode23Soft(llr); got != d {
+			t.Fatalf("golay: five weak errors not corrected (data %x)", d)
+		}
+		d11 := uint32(r.Intn(2048))
+		h := Hamming15(d11) ^ 1<<uint(r.Intn(15))
+		for i := 0; i < 15; i++ {
+			llr[i] = 3
+			if h>>uint(i)&1 == 1 {
+				llr[i] = -3
+			}
+		}
+		if got, f := DecodeHamming15Soft(llr); got != d11 || f != 1 {
+			t.Fatalf("hamming: got %x (%d flips), want %x", got, f, d11)
+		}
+	}
+	// Extended Golay: the parity bit takes part.
+	d := uint32(0x5A5)
+	w := Golay24(d)
+	for i := 0; i < 24; i++ {
+		llr[i] = 2
+		if w>>uint(i)&1 == 1 {
+			llr[i] = -2
+		}
+	}
+	if got, f := Decode24Soft(llr); got != d || f != 0 {
+		t.Fatalf("golay24: got %x %d", got, f)
+	}
+}
