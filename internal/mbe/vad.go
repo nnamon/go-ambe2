@@ -1,13 +1,13 @@
-package ambe
+package mbe
 
-// vad decides whether a frame is sent as a silence frame.  TIA-102.BABA-1
+// VAD decides whether a frame is sent as a silence frame.  TIA-102.BABA-1
 // defines the silence frame format but not the decision, so this is a simple
 // energy detector: a frame is speech if it, or the next frame (from the
 // encoder's look-ahead), exceeds both an absolute floor and a multiple of a
 // tracked noise floor; speech is held for a few frames after it ends.  Its
 // parameters were fitted to the silence decisions of a deployed AMBE+2
 // encoder (≈88% frame agreement on held-out speech).
-type vad struct {
+type VAD struct {
 	ratio, floor, rise float64
 	hangFrames         int
 
@@ -16,13 +16,14 @@ type vad struct {
 	hang  int
 }
 
-func newVAD() *vad {
-	return &vad{ratio: 32, floor: 5000, rise: 1.001, hangFrames: 4}
+// NewVAD returns a detector with the parameters fitted to the MD-380 encoder.
+func NewVAD() *VAD {
+	return &VAD{ratio: 32, floor: 5000, rise: 1.001, hangFrames: 4}
 }
 
-// silent reports whether the frame with mean-square energy cur (followed by
+// Silent reports whether the frame with mean-square energy cur (followed by
 // a frame with energy next) is silence.
-func (v *vad) silent(cur, next float64) bool {
+func (v *VAD) Silent(cur, next float64) bool {
 	if !v.init || cur < v.noise {
 		v.noise, v.init = cur, true
 	} else {

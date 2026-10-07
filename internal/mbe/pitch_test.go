@@ -1,4 +1,4 @@
-package ambe
+package mbe
 
 import (
 	"math"

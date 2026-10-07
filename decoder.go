@@ -5,6 +5,7 @@ import (
 
 	"github.com/nnamon/go-ambe2/fec"
 	"github.com/nnamon/go-ambe2/frame"
+	"github.com/nnamon/go-ambe2/internal/mbe"
 	"github.com/nnamon/go-ambe2/quant"
 )
 
@@ -20,9 +21,9 @@ import (
 // It is not safe for concurrent use.
 type Decoder struct {
 	q   *quant.Predictor
-	syn *synthesizer
+	syn *mbe.Synthesizer
 
-	last    synthModel // last valid frame's enhanced model, for repeats
+	last    mbe.Model // last valid frame's enhanced model, for repeats
 	haveVal bool
 	repeats int
 	errRate float64 // ε_R
@@ -59,14 +60,14 @@ func NewDecoder() *Decoder { return NewDecoderConfig(DecoderConfig{}) }
 
 // NewDecoderConfig returns a decoder with the given configuration.
 func NewDecoderConfig(cfg DecoderConfig) *Decoder {
-	d := &Decoder{q: quant.NewPredictor(), syn: newSynthesizer(), muteState: 1,
+	d := &Decoder{q: quant.NewPredictor(), syn: mbe.NewSynthesizer(), muteState: 1,
 		silenceGain: cfg.SilenceGain, noEnhance: cfg.NoEnhancement}
 	if d.silenceGain == 0 {
 		d.silenceGain = SilenceGain
 	}
 	if !cfg.StandardSynthesis {
-		d.syn.dispersed = true
-		d.syn.interpLimit = quant.MaxL + 1
+		d.syn.Dispersed = true
+		d.syn.InterpLimit = mbe.MaxL + 1
 	}
 	return d
 }
@@ -111,9 +112,9 @@ func (d *Decoder) decode(b *frame.Bits, bad bool) [FrameSamples]int16 {
 		for l := 1; l <= tm.L; l++ {
 			tm.M[l] *= toneLevel
 		}
-		tm.pure = true
+		tm.Pure = true
 		d.last, d.haveVal, d.repeats = tm, true, 0
-		d.syn.synthesize(&tm, &out)
+		d.syn.Synthesize(&tm, &out)
 		return toPCM(&out)
 	}
 	if bad || kind == quant.Erasure {
@@ -121,14 +122,14 @@ func (d *Decoder) decode(b *frame.Bits, bad bool) [FrameSamples]int16 {
 	}
 
 	m, _ := d.q.Dequantize(p)
-	var sm synthModel
-	sm.w0, sm.L = m.W0, m.L
+	var sm mbe.Model
+	sm.W0, sm.L = m.W0, m.L
 	for l := 1; l <= m.L; l++ {
-		sm.voiced[l] = m.Voiced[l]
+		sm.Voiced[l] = m.Voiced[l]
 		sm.M[l] = m.Amplitude(l)
 	}
 	if !d.noEnhance {
-		enhance(sm.w0, sm.L, &sm.M)
+		mbe.Enhance(sm.W0, sm.L, &sm.M)
 	}
 	if kind == quant.Silence {
 		for l := 1; l <= sm.L; l++ {
@@ -140,7 +141,7 @@ func (d *Decoder) decode(b *frame.Bits, bad bool) [FrameSamples]int16 {
 	if d.errRate > 0.096 {
 		return d.mute()
 	}
-	d.syn.synthesize(&sm, &out)
+	d.syn.Synthesize(&sm, &out)
 	return toPCM(&out)
 }
 
@@ -153,7 +154,7 @@ func (d *Decoder) repeat() [FrameSamples]int16 {
 	}
 	var out [FrameSamples]float64
 	sm := d.last
-	d.syn.synthesize(&sm, &out)
+	d.syn.Synthesize(&sm, &out)
 	return toPCM(&out)
 }
 
@@ -162,13 +163,13 @@ func (d *Decoder) repeat() [FrameSamples]int16 {
 func (d *Decoder) mute() [FrameSamples]int16 {
 	var out [FrameSamples]int16
 	for i := range out {
-		d.muteState = nextNoise(d.muteState)
-		out[i] = int16(math.Round(d.muteState/noiseHi*10 - 5))
+		d.muteState = mbe.NextNoise(d.muteState)
+		out[i] = int16(math.Round(d.muteState/mbe.NoiseHi*10 - 5))
 	}
-	var silent synthModel
-	silent.w0 = d.syn.prev.w0
+	var silent mbe.Model
+	silent.W0 = d.syn.Prev.W0
 	var sink [FrameSamples]float64
-	d.syn.synthesize(&silent, &sink)
+	d.syn.Synthesize(&silent, &sink)
 	return out
 }
 

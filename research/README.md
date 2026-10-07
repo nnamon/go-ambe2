@@ -35,7 +35,7 @@ research/setup.sh          # needs git, curl, make, cc/c++, go, python3 (pdftote
 | `tools/from_draft_layout.py` | converts `.amb`/`.bits` files from the draft standard's b3/b4 placement (OP25) to the MD-380's |
 | `tools/server_compat.py` | drives `ambe-server` and DVSwitch's `md380-emu -S` with one UDP client: reply format, identity with the offline tools, cross-decoding scores, round-trip times |
 | `tools/vad_fit.py` | fits the voice activity detector to the MD-380 encoder's silence decisions |
-| `tools/gen_codebook.py`, `gen_imbe_windows.py`, `mbelib_tables.py` | regenerate `../internal/codebook` (from mbelib, ISC) and `../internal/imbe` (from the TIA-102.BABA annexes) |
+| `tools/gen_codebook.py`, `gen_imbe_windows.py`, `mbelib_tables.py` | regenerate `../internal/codebook` (from mbelib, ISC) and `../internal/mbe/windows.go` (from the TIA-102.BABA annexes) |
 | `tools/fw_callgraph.py` | scopes the firmware's vocoder code (169 functions, about 50 KB of Thumb-2) |
 
 Created by `setup.sh` (git-ignored):

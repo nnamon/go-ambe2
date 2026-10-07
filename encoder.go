@@ -14,12 +14,12 @@ import (
 
 	"github.com/nnamon/go-ambe2/frame"
 	"github.com/nnamon/go-ambe2/internal/codebook"
-	"github.com/nnamon/go-ambe2/internal/imbe"
+	"github.com/nnamon/go-ambe2/internal/mbe"
 	"github.com/nnamon/go-ambe2/quant"
 )
 
 // FrameSamples is the number of 8 kHz samples per 20 ms frame.
-const FrameSamples = 160
+const FrameSamples = mbe.FrameSamples
 
 // Config tunes the encoder; DefaultConfig gives the standard behaviour.
 type Config struct {
@@ -52,41 +52,24 @@ type Config struct {
 func DefaultConfig() Config {
 	return Config{
 		Lookahead:         2,
-		RefineMinBin:      refineM,
+		RefineMinBin:      mbe.RefineMinBin,
 		MatchedAmplitudes: true,
 		Silence:           true,
 		WeightPower:       0.5,
 	}
 }
 
-const (
-	lpfHalf = 10
-	histLen = 1024
-)
-
 // Encoder converts 8 kHz 16-bit PCM into AMBE+2 3600x2450 frames.
 // It is not safe for concurrent use.
 type Encoder struct {
-	cfg    Config
-	vscale float64
+	cfg Config
 
-	hist       [histLen]float64 // high-pass filtered input, newest at the end
-	hpfX, hpfY float64
-
-	pa  *pitchAnalyzer
-	pt  *pitchTracker
-	sp  *spectrum
+	fe  *mbe.Frontend
+	vuv *mbe.Voicing
 	q   *quant.Predictor
-	vad *vad
+	vad *mbe.VAD
 
-	errs  [3]pitchErr // E(P) for frames t .. t+Lookahead
-	nErrs int
-
-	xiMax float64
-	prevV [13]bool // previous frame's V/UV decision per IMBE band (1..12)
-
-	fits [quant.MaxL + 1]harmonicFit
-	lpf  [2*halfWin + 1]float64
+	fits [mbe.MaxL + 1]mbe.HarmonicFit
 
 	// Diagnostics for the most recent frame.
 	Last Analysis
@@ -118,89 +101,35 @@ func NewEncoderConfig(cfg Config) *Encoder {
 	if cfg.RefineMinBin <= 0 {
 		cfg.RefineMinBin = 1
 	}
-	vs := cfg.VoicingScale
-	if vs == 0 {
-		vs = 1
-	}
 	e := &Encoder{
-		cfg:    cfg,
-		vscale: vs,
-		pa:     newPitchAnalyzer(),
-		pt:     newPitchTracker(),
-		sp:     newSpectrum(),
-		q:      quant.NewPredictor(),
-		vad:    newVAD(),
-		xiMax:  20000,
+		cfg: cfg,
+		fe:  mbe.NewFrontend(cfg.Lookahead),
+		vuv: mbe.NewVoicing(),
+		q:   quant.NewPredictor(),
+		vad: mbe.NewVAD(),
 	}
-	// Pretend Lookahead frames of silence preceded the input so that every
-	// call can emit a frame.
-	for i := 0; i < cfg.Lookahead; i++ {
-		for j := range e.errs[i] {
-			e.errs[i][j] = 1
-		}
+	if cfg.VoicingScale != 0 {
+		e.vuv.Scale = cfg.VoicingScale
 	}
-	e.nErrs = cfg.Lookahead
 	return e
 }
 
 // Delay is the encoder's algorithmic delay in samples: the frame returned by
 // Encode is centred this many samples before the end of the input so far.
-func (e *Encoder) Delay() int {
-	return halfWin + lpfHalf + FrameSamples*e.cfg.Lookahead
-}
+func (e *Encoder) Delay() int { return e.fe.Delay() }
 
 // Encode consumes the next 20 ms of audio and returns one 49-bit frame.
 func (e *Encoder) Encode(pcm *[FrameSamples]int16) frame.Bits {
-	// High-pass filter H(z) = (1 − z⁻¹)/(1 − 0.99 z⁻¹) into the history.
-	copy(e.hist[:], e.hist[FrameSamples:])
-	base := histLen - FrameSamples
-	for i, v := range pcm {
-		x := float64(v)
-		y := x - e.hpfX + 0.99*e.hpfY
-		e.hpfX, e.hpfY = x, y
-		e.hist[base+i] = y
-	}
-
-	// E(P) for the newest frame whose pitch window (plus LPF taps) is complete.
-	cE := histLen - 1 - halfWin - lpfHalf
-	for n := -halfWin; n <= halfWin; n++ {
-		s := 0.0
-		for j := -lpfHalf; j <= lpfHalf; j++ {
-			s += e.hist[cE+n-j] * imbe.LPF[j+lpfHalf]
-		}
-		e.lpf[n+halfWin] = s
-	}
-	e.errs[e.nErrs] = e.pa.analyze(e.lpf[:])
-	e.nErrs++
-
-	// Frame to encode now is Lookahead frames older.
-	c := cE - FrameSamples*e.cfg.Lookahead
-	future := make([]*pitchErr, 0, 2)
-	for i := 1; i < e.nErrs; i++ {
-		future = append(future, &e.errs[i])
-	}
-	PI, EI := e.pt.track(&e.errs[0], future)
-	copy(e.errs[:], e.errs[1:])
-	e.nErrs--
-
-	e.sp.analyze(e.hist[c-wrHalf : c+wrHalf+1])
-	silent := e.cfg.Silence && e.vad.silent(meanSquare(e.hist[c-80:c+80]), meanSquare(e.hist[c+80:c+240]))
+	PI, EI := e.fe.Push(pcm)
+	silent := e.cfg.Silence && e.vad.Silent(e.fe.Energies())
 	b := e.encodeFrame(PI, EI, silent)
 	return b.Bits()
 }
 
 // encodeFrame turns the analysed frame into quantizer values.
 func (e *Encoder) encodeFrame(PI, EI float64, silent bool) frame.Params {
-	sp := e.sp
-	lf, hf := sp.energies()
-	xi0 := lf + hf
-	if xi0 > e.xiMax {
-		e.xiMax = 0.5*e.xiMax + 0.5*xi0
-	} else if v := 0.99*e.xiMax + 0.01*xi0; v > 20000 {
-		e.xiMax = v
-	} else {
-		e.xiMax = 20000
-	}
+	sp := e.fe.Sp
+	lf, hf, xi0 := e.vuv.Track(sp)
 	e.Last = Analysis{PInit: PI, EInit: EI, Xi0: xi0}
 
 	var t quant.Target
@@ -209,28 +138,19 @@ func (e *Encoder) encodeFrame(PI, EI float64, silent bool) frame.Params {
 		e.Last.Silence = true
 		t.B0 = quant.SilenceB0
 		w0, L := quant.PitchOf(t.B0)
-		sp.fit(w0, L, e.fits[:])
+		sp.Fit(w0, L, e.fits[:])
 		att := e.cfg.SilenceAttenuation / (20 * math.Log10(2))
 		for l := 1; l <= L; l++ {
-			t.LogU[l] = log2Amp(sp.unvoicedAmp(e.fits[l])) + 0.5*math.Log2(w0) + unvoicedOffset - att + e.cfg.GainOffset
+			t.LogU[l] = log2Amp(sp.UnvoicedAmp(e.fits[l])) + 0.5*math.Log2(w0) + unvoicedOffset - att + e.cfg.GainOffset
 		}
-		for k := range e.prevV {
-			e.prevV[k] = false
-		}
+		e.vuv.Reset()
 		p, m := e.q.Quantize(&t)
 		e.Last.Params, e.Last.Target, e.Last.Model = p, t, m
 		return p
 	}
 
 	// Pitch refinement: ten quarter-sample candidates around P_I (eq. 24).
-	bestW, bestE := 0.0, math.Inf(1)
-	for i := 0; i < 10; i++ {
-		P := PI - 9.0/8 + float64(i)/4
-		w0 := 2 * math.Pi / P
-		if er := sp.refineError(w0, e.cfg.RefineMinBin, e.fits[:]); er < bestE {
-			bestW, bestE = w0, er
-		}
-	}
+	bestW := sp.RefinePitch(PI, e.cfg.RefineMinBin, e.fits[:])
 	e.Last.W0 = bestW
 
 	// Quantize the fundamental (BABA-1 §4.1).  The spectrum is then analysed
@@ -246,50 +166,18 @@ func (e *Encoder) encodeFrame(PI, EI float64, silent bool) frame.Params {
 	t.B0 = uint16(b0)
 	w0, L := quant.PitchOf(t.B0)
 	wa := bestW
-	sp.fit(wa, L, e.fits[:])
+	sp.Fit(wa, L, e.fits[:])
 
 	// V/UV determination over K bands of three harmonics (eq. 34-42).
-	K := 12
-	if L <= 36 {
-		K = (L + 2) / 3
-	}
-	M := (0.0025*e.xiMax + xi0) / (0.01*e.xiMax + xi0)
-	if lf < 5*hf {
-		M *= math.Sqrt(lf / (5 * hf))
-	}
-	var v [13]bool
-	for k := 1; k <= K; k++ {
-		lHi := 3 * k
-		if k == K {
-			lHi = L
-		}
-		var num, den float64
-		for l := 3*k - 2; l <= lHi; l++ {
-			num += e.fits[l].err
-			den += e.fits[l].energy
-		}
-		theta := 0.0
-		if !(EI > 0.5 && k >= 2) {
-			base := 0.45
-			if e.prevV[k] {
-				base = 0.5625
-			}
-			theta = base * (1 - 0.3096*float64(k-1)*wa) * M * e.vscale
-		}
-		v[k] = den > 0 && num/den < theta
-	}
-	e.prevV = v
+	v := e.vuv.Decide(e.fits[:], L, wa, EI, lf, hf, xi0)
 
 	// Spectral amplitudes (eq. 43-44) and the voicing summary per 500 Hz band
 	// for the b1 search (BABA-1 eq. 4, weights |M_l|²).
 	var mv, mu [quant.MaxL + 1]float64
 	for l := 1; l <= L; l++ {
-		mv[l] = sp.voicedAmp(e.fits[l])
-		mu[l] = sp.unvoicedAmp(e.fits[l])
-		kl := 12
-		if l <= 36 {
-			kl = (l + 2) / 3
-		}
+		mv[l] = sp.VoicedAmp(e.fits[l])
+		mu[l] = sp.UnvoicedAmp(e.fits[l])
+		kl := mbe.BandOfHarmonic(l)
 		m := mu[l]
 		if v[kl] {
 			m = mv[l]
@@ -323,14 +211,6 @@ func (e *Encoder) encodeFrame(PI, EI float64, silent bool) frame.Params {
 var unvoicedOffset = -math.Log2(0.2046)
 
 func f0Of(b0 uint16) float64 { return codebook.W0[b0] }
-
-func meanSquare(x []float64) float64 {
-	s := 0.0
-	for _, v := range x {
-		s += v * v
-	}
-	return s / float64(len(x))
-}
 
 func log2Amp(a float64) float64 {
 	const floor = 1e-3

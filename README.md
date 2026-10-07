@@ -44,7 +44,7 @@ dtmf0 := ambe.ToneFrame(128, 100) // tone frame: DTMF "0", 100/127 amplitude
 | `fec` | 49 ↔ 72-bit channel coding: [24,12]/[23,12] Golay, PN modulation, Annex H / DMR interleave, with error-correcting decode |
 | `frame` | the 49-bit frame: b0..b8 bit layout (with conversions to and from the draft standard's, `FromDraftLayout` / `ToDraftLayout`), DSD `.amb`, text and 7-byte wire (`Pack7`) forms |
 | `internal/codebook` | quantizer tables (generated from mbelib, ISC licence, see `LICENSE.mbelib`) |
-| `internal/imbe` | TIA-102.BABA windows w_I, w_R, w_S and the pitch lowpass (generated from the spec's Annexes B–D and I) |
+| `internal/mbe` | the MBE core shared by the codecs: TIA-102.BABA speech analysis (pitch estimation and tracking, refinement, V/UV, amplitudes), spectral enhancement, speech synthesis, and the windows w_I, w_R, w_S and pitch lowpass (generated from the spec's Annexes B–D and I) |
 | `internal/dsp` | FFT and small helpers |
 | `cmd/ambe-enc`, `cmd/ambe-dec`, `cmd/ambe-params` | file encoder, decoder and parameter dump |
 | `cmd/ambe-server` | UDP vocoder server, protocol-compatible with `md380-emu -S` |

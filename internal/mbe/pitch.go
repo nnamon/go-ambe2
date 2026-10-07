@@ -1,9 +1,7 @@
-package ambe
+package mbe
 
 import (
 	"math"
-
-	"github.com/nnamon/go-ambe2/internal/imbe"
 )
 
 // Pitch-period grid for the initial estimate: P = pMin, pMin+pStep, ..., pMax samples.
@@ -46,7 +44,7 @@ type pitchAnalyzer struct {
 
 func newPitchAnalyzer() *pitchAnalyzer {
 	pa := &pitchAnalyzer{}
-	for i, w := range imbe.WI {
+	for i, w := range WI {
 		pa.w2[i] = w * w
 		pa.sumW4 += pa.w2[i] * pa.w2[i]
 	}

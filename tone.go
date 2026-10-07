@@ -4,6 +4,7 @@ import (
 	"math"
 
 	"github.com/nnamon/go-ambe2/frame"
+	"github.com/nnamon/go-ambe2/internal/mbe"
 )
 
 // toneTable gives, for tone indices 128..163, the MBE representation of
@@ -98,14 +99,14 @@ func toneMBE(id int) (f0 float64, l1, l2 int, ok bool) {
 const toneLevel = 1.056
 
 // toneModel builds the synthesis model for a tone frame (BABA-1 eq. 65-68).
-func toneModel(b *frame.Bits) (synthModel, bool) {
-	var m synthModel
+func toneModel(b *frame.Bits) (mbe.Model, bool) {
+	var m mbe.Model
 	id, ad := ToneParams(b)
 	f0, l1, l2, ok := toneMBE(id)
 	if !ok {
 		return m, false
 	}
-	m.w0 = 2 * math.Pi * f0 / 8000
+	m.W0 = 2 * math.Pi * f0 / 8000
 	m.L = int(3812.5 / f0)
 	if m.L > len(m.M)-2 {
 		m.L = len(m.M) - 2
@@ -115,7 +116,7 @@ func toneModel(b *frame.Bits) (synthModel, bool) {
 	}
 	a := 16384 * math.Pow(10, 0.03555*float64(ad-127))
 	for _, l := range []int{l1, l2} {
-		m.voiced[l] = true
+		m.Voiced[l] = true
 		m.M[l] = a
 	}
 	return m, true
